@@ -29,23 +29,6 @@ Benefits for teams:
 
 ---
 
-### The `factora` Caching Lifecycle
-
-This diagram explains how `factora` makes the UI feel instant by preferring fresh cached data.
-
-```mermaid
-flowchart TD
-A[User navigates to a page] --> B{Fresh data in cache?};
-B -- "Yes (within TTL)" --> C[Show UI Instantly from Cache];
-B -- "No (stale or first visit)" --> D[Show Loading State];
-D --> E[Fetch Data from Network];
-E --> F[Render UI with Fresh Data];
-```
-
-The critical path is the **"Yes"** branch: when data is fresh, the UI renders immediately without a network round trip.
-
----
-
 ### How It Works: The Core Architecture
 
 `factora` provides out-of-the-box solutions to difficult async problems.
@@ -66,13 +49,9 @@ C --> E[usePostStore Hook];
 
 ---
 
-### Guaranteed Robustness: Race Condition Handling & Testing
+### Guaranteed Robustness
 
 `factora` is designed to be resilient in real-world apps and is covered by a comprehensive test suite.
-
-#### Race Condition Prevention
-
-To avoid stale results overwriting fresh ones, `factora` uses an **internal token-based mechanism**. If a newer request for the same resource resolves first, older responses are ignored safely.
 
 #### Comprehensive Testing
 
@@ -95,7 +74,7 @@ This file contains your raw data-fetching logic. It knows how to talk to your AP
 
 ```ts
 // src/api.ts
-import axios, { type AbortSignal } from "axios";
+import axios, { type AbortSignal } from 'axios';
 
 // Define your data shapes
 export interface Post {
@@ -110,14 +89,14 @@ export interface User {
 }
 
 const apiClient = axios.create({
-  baseURL: "https://jsonplaceholder.typicode.com",
+  baseURL: 'https://jsonplaceholder.typicode.com',
 });
 
 // Create a generic fetcher for your API
 export const apiFetcher = async <T>(
   endpoint: string,
   params: Record<string, any>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<T> => {
   const response = await apiClient.get(endpoint, { params, signal });
   return response.data;
@@ -130,8 +109,8 @@ This file becomes the single source of truth for your application's data layer, 
 
 ```ts
 // src/stores.ts
-import { createApiStore } from "factora";
-import { apiFetcher, type Post, type User } from "./api";
+import { createApiStore } from 'factora';
+import { apiFetcher, type Post, type User } from './api';
 
 const defaultOptions = {
   cacheTTL: 5 * 60 * 1000, // 5-minute cache
@@ -140,19 +119,19 @@ const defaultOptions = {
 
 // Create and export singleton hooks for each data type.
 export const usePostsStore = createApiStore<Post[]>(
-  "/posts",
+  '/posts',
   apiFetcher,
-  defaultOptions
+  defaultOptions,
 );
 export const usePostStore = createApiStore<Post>(
-  "/posts/:postId",
+  '/posts/:postId',
   apiFetcher,
-  defaultOptions
+  defaultOptions,
 );
 export const useUserStore = createApiStore<User>(
-  "/users/:userId",
+  '/users/:userId',
   apiFetcher,
-  defaultOptions
+  defaultOptions,
 );
 ```
 
@@ -162,7 +141,7 @@ Your UI components import the pre-configured hooks and remain clean, declarative
 
 ```tsx
 // src/components/PostDetails.tsx
-import { usePostStore, useUserStore } from "../stores";
+import { usePostStore, useUserStore } from '../stores';
 
 // A sub-component for fetching and displaying the author.
 // It will only be rendered when we have a userId.
@@ -170,7 +149,7 @@ function AuthorDetails({ userId }: { userId: number }) {
   const { data: author, isLoading } = useUserStore({ userId });
 
   if (isLoading) return <p>Loading author...</p>;
-  return <p>By: {author?.name ?? "Unknown"}</p>;
+  return <p>By: {author?.name ?? 'Unknown'}</p>;
 }
 
 function PostDetails({ postId }: { postId: string }) {

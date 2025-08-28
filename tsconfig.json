@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    /* Target & Language Features */
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM"],
+    "jsx": "react-jsx",
+    /* Modules */
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    /* Emitting Files (Crucial for a Library) */
+    "declaration": true,
+    "declarationDir": "dist/types",
+    "sourceMap": true,
+    /* Type Checking & Linting */
+    "strict": true,
+    "skipLibCheck": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  /* What to Compile */
+  "include": ["src"],
+  "exclude": ["node_modules", "dist", "tests"]
+}
