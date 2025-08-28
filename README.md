@@ -137,7 +137,11 @@ export const useUserStore = createApiStore<User>(
 
 #### Step 3: Use the Hooks in Your Components
 
-Your UI components import the pre-configured hooks and remain clean, declarative, and decoupled from the fetching implementation. This example also shows how to handle dependent queries.
+> **Best Practice Note:**
+> This example shows using the generated store hooks directly in the UI for simplicity.
+> For larger applications, it is highly recommend creating your own **custom "domain" hooks**. These custom hooks can compose multiple store hooks to handle complex logic like dependent queries, providing a cleaner and more reusable interface for your components.
+
+Your UI components remain clean, declarative, and decoupled from the fetching implementation.
 
 ```tsx
 // src/components/PostDetails.tsx
