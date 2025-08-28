@@ -1,0 +1,84 @@
+{
+  "name": "factora",
+  "version": "1.0.0",
+  "description": "Create consistent, type-safe data hooks for React. Handles caching, retries, and GC so you don't have to.",
+  "author": "travelr",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/travelr/factora.git"
+  },
+  "homepage": "https://github.com/travelr/factora",
+  "bugs": {
+    "url": "https://github.com/travelr/factora/issues"
+  },
+  "keywords": [
+    "react",
+    "hooks",
+    "typescript",
+    "data-fetching",
+    "api",
+    "cache",
+    "caching",
+    "retry",
+    "retries",
+    "stale-while-revalidate",
+    "swr",
+    "garbage-collection",
+    "gc",
+    "singleton",
+    "store",
+    "factory",
+    "state-management",
+    "server-state",
+    "zustand"
+  ],
+  "main": "dist/index.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rollup -c",
+    "format": "prettier . --write",
+    "lint": "eslint . --fix",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "react": "^19.1.1",
+    "zustand": "^5.0.8"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^28.0.6",
+    "@rollup/plugin-node-resolve": "^16.0.1",
+    "@rollup/plugin-typescript": "^12.1.4",
+    "@testing-library/jest-dom": "^6.8.0",
+    "@testing-library/react": "^16.3.0",
+    "@types/react": "^19.1.12",
+    "@typescript-eslint/parser": "^8.41.0",
+    "eslint": "^9.34.0",
+    "eslint-plugin-array-func": "^5.0.2",
+    "eslint-plugin-check-file": "^3.3.0",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-prettier": "^5.5.4",
+    "eslint-plugin-promise": "^7.2.1",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-simple-import-sort": "^12.1.1",
+    "eslint-plugin-unused-imports": "^4.2.0",
+    "eslint-plugin-vitest": "^0.5.4",
+    "husky": "^9.1.7",
+    "jsdom": "^26.1.0",
+    "lint-staged": "^16.1.5",
+    "prettier": "^3.6.2",
+    "rollup": "^4.49.0",
+    "rollup-plugin-dts": "^6.2.3",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.41.0",
+    "vitest": "^3.2.4"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,json,md}": "prettier --write",
+    "*.{ts,tsx,js}": "eslint --fix"
+  }
+}

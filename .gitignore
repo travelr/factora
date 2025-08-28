@@ -1,0 +1,12 @@
+node_modules
+dist
+not_used
+
+# Contains secrets!!
+docker-compose.yml
+.env
+
+# Trash
+vite.config.ts.timestamp-*.mjs
+.DS_Store
+stats.html
