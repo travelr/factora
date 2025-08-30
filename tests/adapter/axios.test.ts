@@ -5,7 +5,7 @@
  */
 
 import { axiosErrorMapper } from '@adapter/axios';
-import axios, { AxiosInstance, type AxiosError } from 'axios';
+import axios, { type AxiosError } from 'axios';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 // Define a reusable base context for all tests to keep them DRY.
