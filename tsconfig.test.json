@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["vitest/globals", "vitest/importMeta", "node"],
+    "paths": {
+      "@core/*": ["./src/core/*"],
+      "@adapter/*": ["./src/utils/*"],
+      "@utils/*": ["./src/utils/*"],
+      "@test-helper/*": ["./tests/helper/*"],
+      "@test-utils/*": ["./tests/utils/*"]
+    }
+  },
+  "include": ["src", "tests", "tests/vitest.setup.ts", "vitest.config.ts"],
+  "exclude": ["node_modules", "dist"]
+}

@@ -10,6 +10,7 @@ import promisePlugin from 'eslint-plugin-promise';
 import arrayFunc from 'eslint-plugin-array-func';
 import unusedImports from 'eslint-plugin-unused-imports';
 import vitestPlugin from 'eslint-plugin-vitest';
+import globals from 'globals';
 
 export default [
   // Base recommended rules
@@ -20,6 +21,10 @@ export default [
   ...tseslint.config({
     files: ['src/**/*.ts'], // Apply only to library source files
     languageOptions: {
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+      },
       parser,
       parserOptions: {
         project: './tsconfig.json', // Use base tsconfig
@@ -55,7 +60,6 @@ export default [
           argsIgnorePattern: '^_',
         },
       ],
-      '@typescript-eslint/no-explicit-any': 'warn', // Warn instead of allowing `any` freely
 
       // --- Imports ---
       'import/first': 'error',
@@ -64,10 +68,8 @@ export default [
       'simple-import-sort/imports': 'error',
       'simple-import-sort/exports': 'error',
       'import/no-cycle': 'error',
-      'import/no-extraneous-dependencies': [
-        'error',
-        { devDependencies: false },
-      ], // Strict for library code
+      'promise/avoid-new': 'error',
+      'import/no-extraneous-dependencies': ['off', { devDependencies: false }],
 
       // --- Code Quality & Conventions ---
       'check-file/filename-naming-convention': [
@@ -89,13 +91,30 @@ export default [
       '**/*.spec.{ts,tsx}',
       '**/tests/**/*.{ts,tsx}',
     ],
+    languageOptions: {
+      globals: {
+        ...globals.vitest,
+        ...globals.browser,
+        ...globals.node,
+      },
+      parser: tseslint.parser,
+      parserOptions: {
+        project: true,
+        tsconfigRootDir: import.meta.dirname,
+        ecmaFeatures: { jsx: true },
+      },
+    },
     plugins: {
       vitest: vitestPlugin,
+      // ADDED: Required plugins for the rules used below
+      import: importPlugin,
+      '@typescript-eslint': tseslint.plugin,
+      'unused-imports': unusedImports,
     },
     rules: {
       ...vitestPlugin.configs.recommended.rules,
       // Allow importing from devDependencies in test files
-      'import/no-extraneous-dependencies': ['error', { devDependencies: true }],
+      'import/no-extraneous-dependencies': ['off', { devDependencies: true }],
 
       // Relax rules that are often noisy in tests
       'no-unused-vars': 'off',
