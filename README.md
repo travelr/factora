@@ -4,32 +4,56 @@
 [![GitHub Stars](https://img.shields.io/github/stars/travelr/factora?style=social)](https://github.com/travelr/factora)
 [![License](https://img.shields.io/npm/l/factora?style=flat&color=brightgreen)](https://github.com/travelr/factora/blob/main/LICENSE)
 
-**`factora` is a factory that creates zero-config, singleton data-fetching hooks for React — handling caching, retries, and garbage collection out of the box.**
+**`factora` is a factory that creates zero-config, singleton data-fetching hooks for React — with caching, retries, and garbage collection built in.**
 
 ---
 
 ### Key Benefits
 
-- ⚡️ **Snappy UI with smart caching:** On return navigations, freshly cached data (within its TTL) is displayed instantly so users often avoid loading spinners entirely.
-- 💪 **Resilient UI with automatic retries:** Transient network errors are retried automatically with exponential backoff, preventing temporary glitches from breaking your UI.
-- 🗑️ **Effortless memory management:** Queries no longer used by any component are garbage-collected automatically, helping avoid memory leaks in long-running apps.
-- 🔒 **Catch bugs at compile time:** Create fully typed hooks where data shapes, errors, and fetcher parameters are inferred — ensuring type safety from your API layer to the UI.
+- ⚡️ **Snappy UI with smart caching:** When returning to a page, freshly cached data (within its TTL) is shown instantly, often eliminating loading spinners.
+- 💪 **Resilient UI with automatic retries:** Transient network errors are retried automatically with an exponential backoff. So that temporary glitches don’t break your UI.
+- 🗑️ **Effortless memory management:** Queries no longer used by any component are garbage-collected automatically. This avoids memory leaks in long-running apps.
+- 🏛️ **Build a True Data Layer:** `factora` provides the foundation to separate your data-fetching _infrastructure_ from your _business logic_, enabling a clean, scalable, and type-safe architecture.
 
 ---
 
 ### The Factory Pattern: A Centralized Data Layer
 
-`factora` follows a simple, powerful principle: centralize your data-fetching logic so it’s consistent and reusable. The `createApiStore` factory implements this by letting you define each data source once and reuse the resulting hooks everywhere.
+`factora` follows a simple principle: centralize data-fetching logic to keep it consistent and reusable. The `createApiStore` factory lets you define each data source once and use the resulting hooks everywhere.
 
-Benefits for teams:
+This provides immediate benefits for teams:
 
-1. **Guaranteed consistency:** Every component uses the same preconfigured hook, so caching, retries, and related behaviors stay uniform.
-2. **Simplified components:** UI code stays focused on rendering — not on complex fetch logic.
-3. **Easy maintenance:** Change how an endpoint is fetched or cached in one place and the whole app picks it up.
+1.  **Consistency Guaranteed:** Every component relies on the same pre-configured hook, keeping caching and retry behavior identical across your entire application.
+2.  **Simpler Components:** UI code focuses purely on rendering state—not on the complex mechanics of how or when to fetch data.
+3.  **Easy Maintenance:** Change how an endpoint is fetched or cached in one place, and the whole app updates automatically.
+
+This approach naturally encourages a clean separation of concerns that aligns with principles like Domain-Driven Design (DDD). You can structure your application into distinct layers:
+
+- **Infrastructure Layer:** The `factora` hooks you create become your reusable, application-wide "repositories." They handle the mechanics of data fetching.
+- **Business Layer:** You can create your own custom hooks that contain your business logic. They orchestrate calls to the infrastructure hooks to compose data perfect aligned to your UI components.
+- **Presentation Layer:** Your React components become the clean, declarative presentation layer.
+
+This separation makes your components simpler, your business logic more explicit and testable, and your data-fetching consistent by default.
 
 ---
 
-### How It Works: The Core Architecture
+### Installation
+
+```bash
+npm install factora
+```
+
+### Peer Dependencies
+
+factora requires React and Zustand to be installed in your project:
+
+```bash
+npm install react zustand
+```
+
+---
+
+### The Core Architecture
 
 `factora` provides out-of-the-box solutions to difficult async problems.
 
@@ -41,23 +65,25 @@ C --> D[useUserStore Hook];
 C --> E[usePostStore Hook];
 ```
 
-| Feature                          | How It Works                                                                                                                                          |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Request Deduplication**        | If 10 components call `usePostStore({ postId: 1 })` simultaneously, only **one** network request is made.                                             |
-| **Race Condition Prevention**    | An internal token system ensures results from older, slower requests cannot overwrite newer results.                                                  |
-| **Automatic Garbage Collection** | The central store tracks subscribers for each query. Once no components are subscribed, the cache entry is cleared after a configurable grace period. |
+| Feature                            | Description                                                                                                                          |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| **Request Deduplication**          | If 10 components call `useUserStore({ userId: 3 })` at once, only **one** network request runs.                                      |
+| **Configurable Caching (TTL)**     | Define a `cacheTTL` (ms). Data within its TTL is served instantly from cache, skipping the network.                                  |
+| **Automatic Retries**              | Configure `retryAttempts` and `retryDelay`. Failed requests retry automatically with exponential backoff.                            |
+| **Race Condition Prevention**      | An internal token system ensures slower responses never overwrite newer ones.                                                        |
+| **Automatic Garbage Collection**   | The store tracks subscribers. Once none remain, the cache entry clears after a grace period.                                         |
+| **Automatic Refetching (Polling)** | Set `refetchIntervalMinutes` to refresh data periodically, keeping your UI up to date.                                               |
+| **Manual Actions**                 | The hooks return stable `refetch()` and `clear()` methods, giving you control to refresh or clear a specific query’s cache manually. |
 
 ---
 
-### Guaranteed Robustness
+### Architecture & Testing Strategy
 
-`factora` is designed to be resilient in real-world apps and is covered by a comprehensive test suite.
+`factora` is built for resilience in real-world apps and is covered by a comprehensive test suite.
 
-#### Comprehensive Testing
+Tests cover everything from low-level utilities to full integration flows, including caching, retries, garbage collection, and complex race conditions.
 
-The library is validated by an extensive test suite covering low-level utilities and high-level integration scenarios, including caching, retries, garbage collection, and the tricky race conditions.
-
-For full technical details:
+For more details:
 
 - 📘 **[Architecture](docs/api-store-factory.md)**
 - 🧪 **[Testing Strategy](docs/api-store-factory.tests.md)**
@@ -66,14 +92,14 @@ For full technical details:
 
 ### A Practical Example: Building a Data Layer
 
-Below is a concise example that shows how to centralize hooks for a blog.
+Here’s a simple example of how to centralize hooks for a blog.
 
-#### Step 1: Create a Centralized API Fetcher (`api.ts`)
+#### Step 1: Create a Centralized API Fetcher (`blog-api.ts`)
 
-This file contains your raw data-fetching logic. It knows how to talk to your API but knows nothing about React.
+This file contains raw data-fetching logic specific to an endpoint
 
 ```ts
-// src/api.ts
+// src/blog-api.ts.ts
 import axios, { type AbortSignal } from 'axios';
 
 // Define your data shapes
@@ -92,7 +118,7 @@ const apiClient = axios.create({
   baseURL: 'https://jsonplaceholder.typicode.com',
 });
 
-// Create a generic fetcher for your API
+// Generic fetcher
 export const apiFetcher = async <T>(
   endpoint: string,
   params: Record<string, any>,
@@ -103,21 +129,22 @@ export const apiFetcher = async <T>(
 };
 ```
 
-#### Step 2: Create Your Store Hooks (`stores.ts`)
+#### Step 2: Create Your Store Hooks (`blog-stores.ts`)
 
-This file becomes the single source of truth for your application's data layer, ensuring all hooks are consistent.
+This file is the single source of truth for your data layer.
+Create one data layer per API source
 
 ```ts
-// src/stores.ts
+// src/blog-stores.ts
 import { createApiStore } from 'factora';
 import { apiFetcher, type Post, type User } from './api';
 
 const defaultOptions = {
-  cacheTTL: 5 * 60 * 1000, // 5-minute cache
-  retryAttempts: 2,
+cacheTTL: 5 _ 60 _ 1000, // 5 minutes
+retryAttempts: 2,
 };
 
-// Create and export singleton hooks for each data type.
+// Singleton hooks for each data type
 export const usePostsStore = createApiStore<Post[]>(
   '/posts',
   apiFetcher,
@@ -137,19 +164,14 @@ export const useUserStore = createApiStore<User>(
 
 #### Step 3: Use the Hooks in Your Components
 
-> **Best Practice Note:**
-> This example shows using the generated store hooks directly in the UI for simplicity.
-> For larger applications, it is highly recommend creating your own **custom "domain" hooks**. These custom hooks can compose multiple store hooks to handle complex logic like dependent queries, providing a cleaner and more reusable interface for your components.
-
-Your UI components remain clean, declarative, and decoupled from the fetching implementation.
+Your UI components import the pre-configured hooks and remain clean, declarative, and decoupled from the fetching implementation.
 
 ```tsx
 // src/components/PostDetails.tsx
-import { usePostStore, useUserStore } from '../stores';
+import { usePostStore, useUserStore } from '../blog-stores';
 
-// A sub-component for fetching and displaying the author.
-// It will only be rendered when we have a userId.
 function AuthorDetails({ userId }: { userId: number }) {
+  // Only one netowrk request per userId, even if called multiple times (within TTL)
   const { data: author, isLoading } = useUserStore({ userId });
 
   if (isLoading) return <p>Loading author...</p>;
@@ -174,8 +196,19 @@ function PostDetails({ postId }: { postId: string }) {
 }
 ```
 
+> **Best Practice: Separating Concerns with Domain Hooks**
+>
+> The example above is simplified for clarity. In a larger application, this pattern truly shines when you create your own **custom "business logic" hooks** that compose multiple store hooks:
+>
+> - **`factora` Stores (`usePostStore`)** handle the _infrastructure_ concern of data fetching.
+> - **Your Custom Hooks (`usePostWithAuthor`)** handle the _domain_ concern of business logic (e.g., orchestrating dependent queries).
+> - **Your Components** handle the _presentation_ concern and remain simple.
+>
+> This separation makes your codebase more modular, scalable, and easier to test.
+
 ---
 
 ### Contributing & License
 
-Contributions are welcome. Open an issue or submit a pull request. This project is released under the [MIT license](https://github.com/travelr/factora/blob/main/LICENSE).
+Contributions are welcome! Open an issue or submit a pull request.  
+This project is released under the [MIT license](https://github.com/travelr/factora/blob/main/LICENSE).
