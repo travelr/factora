@@ -1,6 +1,6 @@
 {
   "name": "factora",
-  "version": "1.0.0",
+  "version": "0.9.0",
   "description": "Create consistent, type-safe data hooks for React. Handles caching, retries, and GC so you don't have to.",
   "author": "travelr",
   "license": "MIT",
@@ -34,6 +34,11 @@
     "zustand"
   ],
   "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./axios": "./dist/axios.js",
+    "./loglevel": "./dist/loglevel.js"
+  },
   "module": "dist/esm/index.js",
   "types": "dist/index.d.ts",
   "files": [
@@ -46,8 +51,18 @@
     "test": "vitest --config vitest.config.ts"
   },
   "peerDependencies": {
-    "react": ">=18.0.0",
-    "zustand": ">=5.0.0"
+    "axios": "^1.0.0",
+    "loglevel": "^1.8.0",
+    "react": "^18.0.0",
+    "zustand": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "axios": {
+      "optional": true
+    },
+    "loglevel": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@eslint/js": "^9.34.0",

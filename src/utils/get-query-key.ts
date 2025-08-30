@@ -1,5 +1,6 @@
-// src/utils/get-query-key.ts
-import log from 'loglevel';
+/**
+ * @fileoverview Pure utility functions for creating and parsing store query keys.
+ */
 
 /**
  * Generates a consistent cache key from API endpoint and parameters.
@@ -9,23 +10,17 @@ import log from 'loglevel';
  * @param endpoint - API endpoint path (e.g., '/api/history/period', '/wellness')
  * @param params - Request parameters object (can be undefined/null)
  * @returns Stringified JSON containing endpoint and sorted params, serving as the cache key.
+ * @throws {TypeError} If the endpoint is not a non-empty string.
  */
 export const getQueryKey = (
   endpoint: string,
   params?: Record<string, unknown> | null,
 ): string => {
-  // Input validation for endpoint
+  // Input validation for endpoint. A pure utility must throw an error on invalid input.
   if (typeof endpoint !== 'string' || endpoint.length === 0) {
-    log.error('[getQueryKey] Invalid or empty endpoint provided.', {
-      endpoint,
-      params,
-    });
-    // Returning an invalid key signals an issue downstream without crashing the app.
-    // Note: Returning a predictable "invalid" key allows downstream logic to handle it.
-    // If this key were used directly in caching, it might cache an error state,
-    // which might or might not be desired. A robust system might check for this
-    // specific invalid key format and handle it specially.
-    return `INVALID_KEY:${endpoint}`; // Returning a unique string unlikely to conflict
+    throw new TypeError(
+      `[getQueryKey] Invalid endpoint provided. Expected a non-empty string, but received: ${endpoint}`,
+    );
   }
 
   // Handle null/undefined params case explicitly
@@ -40,7 +35,6 @@ export const getQueryKey = (
   );
 
   // JSON.stringify handles Date objects by converting them to ISO strings (YYYY-MM-DDTHH:mm:ss.sssZ).
-  // Simple strings like 'yyyy-MM-dd' remain strings.
   // The structure of the key is explicitly { endpoint: string, params: Record<string, unknown> }
   return JSON.stringify({ endpoint, params: sortedParams });
 };
@@ -120,13 +114,7 @@ export const parseQueryKey = (
       typeof parsed.params !== 'object' ||
       parsed.params === null
     ) {
-      // Log detailed info before throwing for better debugging
-      log.error(
-        '[parseQueryKey] Invalid query key structure after parsing and reviving:',
-        key,
-        parsed,
-      );
-      // Throw a specific error type or message indicating a structural issue.
+      // A pure utility throws; it does not log. The caller is responsible for logging.
       throw new Error('Invalid query key structure after parsing');
     }
 
@@ -135,20 +123,12 @@ export const parseQueryKey = (
     // after passing the quick checks. Other strings will remain strings.
     return {
       endpoint: parsed.endpoint,
-      // Cast params safely now that structure is validated
       params: parsed.params as Record<string, unknown>,
     };
   } catch (error: any) {
-    // Catch any errors during JSON.parse or initial structure validation.
-    // Log the original key and the error details.
-    log.error(
-      '[parseQueryKey] Failed to parse or validate query key:',
-      key,
-      error,
-    );
-    // Re-throw a new error with a consistent message format.
+    // Re-throw a new, more specific error to the caller. Do not log here.
     throw new Error(
-      `Failed to parse/validate query key: ${error.message || 'Unknown parsing error'}`,
+      `Failed to parse query key. Reason: ${error.message || 'Unknown parsing error'}. Key was: "${key}"`,
     );
   }
 };

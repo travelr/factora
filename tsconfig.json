@@ -6,8 +6,9 @@
     "baseUrl": ".",
     "paths": {
       "@core/*": ["./src/core/*"],
-      "@adapter/*": ["./src/utils/*"],
-      "@utils/*": ["./src/utils/*"]
+      "@adapter/*": ["./src/adapter/*"],
+      "@utils/*": ["./src/utils/*"],
+      "@/types/*": ["./src/types/*"]
     },
     "module": "ESNext",
     "moduleResolution": "node",
