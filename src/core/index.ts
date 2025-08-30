@@ -27,8 +27,8 @@ export const createApiFactoryPure = (baseDependencies: BaseDependencies) => {
    * @param options Configuration options for caching, retries, etc. for this store.
    */
   return <T>(
-    fetcher: FactoraDependencies<T>['fetcher'],
     apiPathKey: string,
+    fetcher: FactoraDependencies<T>['fetcher'],
     options: ApiStoreOptions = {},
   ): UseApiQueryHook<T> => {
     const dependencies: FactoraDependencies<T> = {

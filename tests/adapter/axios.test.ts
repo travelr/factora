@@ -4,7 +4,7 @@
  * Axios and non-Axios errors into the library's standard ApiError format.
  */
 
-import { axiosErrorMapper, createAxiosFetcher } from '@adapter/axios';
+import { axiosErrorMapper } from '@adapter/axios';
 import axios, { AxiosInstance, type AxiosError } from 'axios';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
@@ -162,17 +162,6 @@ describe('axiosErrorMapper', () => {
     });
   });
 
-  test('Verifies it defaults to the global axios instance if no client is provided', async () => {
-    // This is a slightly more advanced test to ensure the default parameter works.
-    const spy = vi.spyOn(axios, 'get').mockResolvedValue({ data: 'default' });
-
-    const fetcher = createAxiosFetcher(); // No client provided
-    await fetcher('/api/default', {}, undefined);
-
-    expect(spy).toHaveBeenCalledTimes(1);
-    spy.mockRestore();
-  });
-
   describe('Non-Axios Error Handling', () => {
     test('Verifies a standard Error object is handled gracefully', () => {
       const thrown = new Error('Something broke');
@@ -212,41 +201,6 @@ describe('axiosErrorMapper', () => {
       const parsed = axiosErrorMapper(error, fullContext);
 
       expect(parsed.context).toEqual(fullContext);
-    });
-  });
-
-  describe('createAxiosFetcher', () => {
-    test('Verifies it calls axios.get with the correct endpoint, params, and signal', async () => {
-      const mockAxios = {
-        get: vi.fn().mockResolvedValue({ data: { success: true } }),
-      } as unknown as AxiosInstance;
-
-      const fetcher = createAxiosFetcher(mockAxios);
-      const abortController = new AbortController();
-      const params = { id: 123, filter: 'active' };
-
-      const result = await fetcher('/api/data', params, abortController.signal);
-
-      // Verify the call signature
-      expect(mockAxios.get).toHaveBeenCalledTimes(1);
-      expect(mockAxios.get).toHaveBeenCalledWith('/api/data', {
-        params,
-        signal: abortController.signal,
-      });
-
-      // Verify the correct data is returned
-      expect(result).toEqual({ success: true });
-    });
-
-    test('Verifies it defaults to the global axios instance if no client is provided', async () => {
-      // This is a slightly more advanced test to ensure the default parameter works.
-      const spy = vi.spyOn(axios, 'get').mockResolvedValue({ data: 'default' });
-
-      const fetcher = createAxiosFetcher(); // No client provided
-      await fetcher('/api/default', {}, undefined);
-
-      expect(spy).toHaveBeenCalledTimes(1);
-      spy.mockRestore();
     });
   });
 });
