@@ -1,5 +1,6 @@
 /**
- * @fileoverview This is the primary entry point for the pure, dependency-injected core factory.
+ * @fileoverview This is the internal entry point for the pure, dependency-injected core factory.
+ * It exports the core factory function to be used by the public-facing entry points.
  */
 import type { FactoraDependencies } from '@/types/dependencies';
 import type { ApiStoreOptions } from '@/types/store';

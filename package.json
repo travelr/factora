@@ -33,17 +33,44 @@
     "server-state",
     "zustand"
   ],
-  "main": "dist/index.js",
-  "exports": {
-    ".": "./dist/index.js",
-    "./axios": "./dist/axios.js",
-    "./loglevel": "./dist/loglevel.js"
-  },
-  "module": "dist/esm/index.js",
-  "types": "dist/index.d.ts",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/types/index.d.ts",
   "files": [
     "dist"
   ],
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/types/index.d.ts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/types/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "./adapter/axios": {
+      "import": {
+        "types": "./dist/types/adapter/axios.d.ts",
+        "default": "./dist/adapter/axios.mjs"
+      },
+      "require": {
+        "types": "./dist/types/adapter/axios.d.ts",
+        "default": "./dist/adapter/axios.js"
+      }
+    },
+    "./adapter/loglevel": {
+      "import": {
+        "types": "./dist/types/adapter/loglevel.d.ts",
+        "default": "./dist/adapter/loglevel.mjs"
+      },
+      "require": {
+        "types": "./dist/types/adapter/loglevel.d.ts",
+        "default": "./dist/adapter/loglevel.js"
+      }
+    }
+  },
   "scripts": {
     "build": "rollup -c --configPlugin typescript --bundleConfigAsCjs",
     "format": "prettier . --write",
@@ -66,6 +93,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.34.0",
+    "@rollup/plugin-alias": "^5.1.1",
     "@rollup/plugin-commonjs": "^28.0.6",
     "@rollup/plugin-node-resolve": "^16.0.1",
     "@rollup/plugin-terser": "^0.4.4",
@@ -94,6 +122,7 @@
     "prettier": "^3.6.2",
     "react": "^19.1.1",
     "rollup": "^4.49.0",
+    "rollup-plugin-delete": "^3.0.1",
     "rollup-plugin-dts": "^6.2.3",
     "rollup-plugin-peer-deps-external": "^2.2.4",
     "typescript": "^5.9.2",
