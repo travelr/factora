@@ -1,5 +1,5 @@
 // tests/utils/api-error-handler.test.ts
-import { handleApiError } from '@utils/api-error-handler';
+import { handleApiError } from '@adapter/axios';
 import axios from 'axios';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 

@@ -2,7 +2,7 @@
 /**
  * @fileoverview A factory for creating a robust, keyed API data store and React hook.
  *
- * This module provides a createApiStore function that generates a Zustand-based store
+ * This module provides a createApiStoreCore function that generates a Zustand-based store
  * and a useApiQuery hook. This pattern enforces a clear separation of concerns:
  *
  * 1. **The Store (The Engine):** A global, keyed cache responsible for all core logic,
@@ -19,37 +19,22 @@
  *  - Never mutate a query state slice in a finally block without first verifying the slice still exists.
  *  - Keep `queryCount` consistent whenever queries are added/removed (used for efficient deregistration).
  */
-import { ApiError, handleApiError } from '@utils/api-error-handler';
-import { registerStoreForGc } from '@utils/api-store-gc';
+import { registerStoreForGc } from '@core/api-store-gc';
 import defer from '@utils/defer';
 import { getQueryKey, parseQueryKey } from '@utils/get-query-key';
-import { subscribeToQueryCount } from '@utils/store-utils';
+import { noop } from '@utils/noop-logger';
 import { subscriptionManager } from '@utils/subscription-registry';
-import log from 'loglevel';
+import { subscribeToQueryCount } from '@utils/zustand-utils';
 import React from 'react';
 import type { UseBoundStore } from 'zustand';
 import { create, StoreApi } from 'zustand';
 import { shallow, useShallow } from 'zustand/shallow';
 
-// --- Internal Types and Interfaces ---
+import type { FactoraDependencies, FactoraLogger } from '@/types/dependencies';
+import type { ApiError, ErrorMapperContext } from '@/types/error';
+import type { ApiStoreOptions } from '@/types/store';
 
-export interface ApiStoreOptions {
-  /** Time in milliseconds to keep successful fetch results cached. Defaults to 5 minutes. */
-  cacheTTL?: number;
-  /** Maximum number of retry attempts for a failed fetch. Defaults to 3. */
-  retryAttempts?: number;
-  /** Base delay in milliseconds before retrying a failed fetch. Defaults to 1000ms. */
-  retryDelay?: number;
-  /** A descriptive name for this API store instance, used in logs. */
-  description?: string;
-  /** Optional interval in minutes to automatically refetch data. Polling is managed by the store. */
-  refetchIntervalMinutes?: number;
-  /**
-   * Grace period in milliseconds before a stale and unused query is evicted from memory by the
-   * garbage collector. Defaults to a safe value based on cacheTTL.
-   */
-  gcGracePeriod?: number;
-}
+// --- Internal Types and Interfaces ---
 
 interface QueryState<T> {
   data: T | null;
@@ -85,7 +70,7 @@ export interface KeyedApiState<T> {
 
 /**
  * A single, isolated fetch attempt with its own error handling wrapper.
- * This helper turns unknown throws into ApiError via handleApiError so upstream logic
+ * This helper turns unknown throws into ApiError via the injected errorMapper so upstream logic
  * can make retry/abort decisions.
  */
 const runFetchAttempt = async <T>(
@@ -94,13 +79,15 @@ const runFetchAttempt = async <T>(
     params: Record<string, any>,
     signal?: AbortSignal,
   ) => Promise<T>,
+  errorMapper: (error: unknown, context: ErrorMapperContext) => ApiError,
+  logger: FactoraLogger,
   apiPathKey: string,
   params: Record<string, any>,
   signal: AbortSignal,
   attempt: number,
   description: string,
 ): Promise<T> => {
-  log.info(
+  logger.info(
     `[${description}] Starting attempt ${attempt} for ${apiPathKey}`,
     params,
   );
@@ -114,14 +101,14 @@ const runFetchAttempt = async <T>(
       // Extra guard: if aborted immediately after fetch resolves
       throw new Error('Request aborted after fetch attempt');
     }
-    log.info(
+    logger.info(
       `[${description} Success] Attempt ${attempt} succeeded for ${apiPathKey}`,
       params,
     );
     return data;
   } catch (error: unknown) {
-    // Normalize error into ApiError with context
-    throw handleApiError(error, {
+    // Normalize error into ApiError with context via the injected mapper
+    throw errorMapper(error, {
       endpoint: apiPathKey,
       params,
       description,
@@ -151,22 +138,21 @@ export interface UseApiQueryHook<TData> {
 export const __test_only_apiStores = new Map<string, any>();
 
 /**
- * Factory that creates a keyed API store plus a hook that reads from it.
+ * Core factory that creates a keyed API store plus a hook that reads from it.
+ * This function is pure and requires all external dependencies to be injected.
  *
  * Design notes:
  *  - The store is deliberately authoritative for data, retries, polling, and deduping.
  *  - The hook is intentionally thin: it subscribes, exposes stable actions, and does not hold complex lifecycle.
  *  - Garbage collection and subscription tracking are implemented outside the state to avoid rerenders.
  */
-export const createApiStore = <T>(
+export const createApiStoreCore = <T>(
+  dependencies: FactoraDependencies<T>,
   apiPathKey: string,
-  fetchFn: (
-    endpoint: string,
-    params: Record<string, any>,
-    signal?: AbortSignal,
-  ) => Promise<T>,
   options: ApiStoreOptions = {},
 ): UseApiQueryHook<T> => {
+  const { logger, errorMapper, fetcher: fetchFn } = dependencies;
+
   const {
     cacheTTL = 5 * 60 * 1000,
 
@@ -183,17 +169,6 @@ export const createApiStore = <T>(
   const retryAttempts = Math.max(1, Math.floor(Number(rawRetryAttempts)));
 
   const refetchIntervalMs = refetchIntervalMinutes * 60 * 1000;
-
-  // Basic validation to help catch obvious misuses early.
-  if (
-    typeof apiPathKey !== 'string' ||
-    apiPathKey.length === 0 ||
-    !apiPathKey.startsWith('/')
-  ) {
-    log.error(
-      `[${description}] Factory created with invalid apiPathKey: "${apiPathKey}". apiPathKey must be a non-empty string starting with '/'.`,
-    );
-  }
 
   /**
    * The internal Zustand store. All concurrency-sensitive work happens here.
@@ -226,7 +201,7 @@ export const createApiStore = <T>(
 
       for (let attempt = 1; attempt <= retryAttempts; attempt++) {
         if (controller.signal.aborted) {
-          log.warn(
+          logger.warn(
             `[${description}] Fetch for ${key} aborted before attempt ${attempt}.`,
           );
           return;
@@ -235,6 +210,8 @@ export const createApiStore = <T>(
         try {
           const data = await runFetchAttempt(
             fetchFn,
+            errorMapper,
+            logger,
             currentApiPathKey,
             runtimeParams,
             controller.signal,
@@ -309,7 +286,7 @@ export const createApiStore = <T>(
               );
             });
           } catch {
-            log.info(
+            logger.info(
               `[${description}] Retry delay for ${key} was aborted. Stopping retries.`,
             );
             return; // Exit the retry loop if the delay is aborted.
@@ -464,7 +441,7 @@ export const createApiStore = <T>(
           })
           .catch((unexpectedError) => {
             // This catch is for unexpected errors in the fetch flow itself.
-            log.error(
+            logger.error(
               `[${description}] An unexpected error occurred in the fetch cycle for key ${key}.`,
               unexpectedError,
             );
@@ -506,7 +483,7 @@ export const createApiStore = <T>(
         try {
           queryToClear?.abortController?.abort();
         } catch (e) {
-          log.error(
+          logger.error(
             `[ApiStore: ${description}] Error aborting request for key: ${key}`,
             e,
           );
@@ -520,7 +497,7 @@ export const createApiStore = <T>(
             clearTimeout(queryToClear.refetchTimerId);
           }
         } catch (e) {
-          log.error(
+          logger.error(
             `[ApiStore: ${description}] Error clearing timer for key: ${key}`,
             e,
           );
@@ -597,8 +574,8 @@ export const createApiStore = <T>(
 
             // Skip eviction if entry is active, polling, or not stale yet.
             if (hasSubscribers || isInFlight || hasTimer || !isStale) {
-              if (log.getLevel() <= log.levels.DEBUG) {
-                log.debug(`[GC] Skipped eviction for "${key}":`, {
+              if (logger.getLevel() <= logger.levels.DEBUG) {
+                logger.debug(`[GC] Skipped eviction for "${key}":`, {
                   hasSubscribers,
                   isInFlight,
                   hasTimer,
@@ -633,7 +610,7 @@ export const createApiStore = <T>(
             if (job.refetchTimerId) clearTimeout(job.refetchTimerId);
             job.abortController?.abort();
           } catch (e) {
-            log.error('[GC] Error during resource cleanup job.', e);
+            logger.error('[GC] Error during resource cleanup job.', e);
           }
         }
       },
@@ -653,7 +630,6 @@ export const createApiStore = <T>(
     __test_only_apiStores.set(apiPathKey, useInternalStore);
   }
 
-  // Register this store instance so the global GC can find it.
   const deregister = registerStoreForGc({
     clearStaleQueries: useInternalStore.getState().clearStaleQueries,
   });
@@ -676,7 +652,7 @@ export const createApiStore = <T>(
       deregisterScheduled = true;
       setTimeout(() => {
         if (useInternalStore.getState().queryCount === 0) {
-          log.info(`[GC] Deregistering empty store: ${description}`);
+          logger.info(`[GC] Deregistering empty store: ${description}`);
           deregister();
           unsubWatcher();
         } else {
@@ -700,7 +676,40 @@ export const createApiStore = <T>(
   const useApiQuery: UseApiQueryHook<T> = (
     runtimeParams: Record<string, any> = {},
   ) => {
-    const key = getQueryKey(apiPathKey, runtimeParams);
+    let key: string;
+    try {
+      // 1. Call the pure utility.
+      key = getQueryKey(apiPathKey, runtimeParams);
+    } catch (error) {
+      // 2. If it throws, the impure core CATCHES the error.
+      // 3. The core then uses its INJECTED logger to report the problem.
+      logger.error(
+        `[${description}] Failed to generate a valid query key. This often indicates a programming error where an invalid apiPathKey or params were passed to the hook.`,
+        {
+          apiPathKey,
+          runtimeParams,
+          error, // Include the original error for context
+        },
+      );
+
+      // 4. The hook must still return a valid, stable state to the component to prevent a crash.
+      return {
+        data: null,
+        loading: false,
+        error: {
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Failed to generate query key',
+          retryable: false,
+        },
+        // Provide no-op functions so the component's event handlers don't crash.
+        refetch: noop,
+        clear: noop,
+      };
+    }
+
+    // If we get here, the key is valid, and the rest of the hook can proceed as normal.
     const { triggerFetch, clearQueryState } = useInternalStore();
 
     // Create a stable selector for the minimal state we need

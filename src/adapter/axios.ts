@@ -2,39 +2,7 @@
 // src/utils/api-error-handler.ts
 import axios, { AxiosError, isCancel } from 'axios';
 
-/**
- * Represents a standardized API error response.
- * Provides classification and context for easier handling and logging.
- * @typedef {Object} ApiError
- * @property {string} message - Human-readable error message.
- * @property {boolean} [retryable] - Indicates if the operation is potentially transient and can be retried.
- * @property {number} [status] - HTTP status code (if available).
- * @property {number} [retryAfter] - Time in milliseconds to wait before retrying (typically for rate limits).
- * @property {boolean} [isAbort] - Indicates if the error was due to the request being aborted/cancelled by the client.
- * @property {string} [errorCode] - A machine-readable code for the error type (e.g., 'ECONNABORTED', 'ERR_NETWORK', 'HTTP_404').
- * @property {unknown} [originalError] - The original underlying error object (e.g., AxiosError, DOMException).
- * @property {Object} [context] - Context information about the failed operation.
- * @property {string} context.endpoint - The API endpoint that was called.
- * @property {Record<string, any>} [context.params] - The request parameters (caution: may contain sensitive data).
- * @property {string} context.description - A human-readable description of the operation (e.g., 'Fetch user data').
- * @property {number} [context.attempt] - The attempt number for the operation (useful for retries).
- */
-export interface ApiError {
-  message: string;
-  retryable?: boolean;
-  status?: number;
-  retryAfter?: number;
-  isAbort?: boolean;
-  errorCode?: string;
-  originalError?: unknown;
-  context?: {
-    // Context object itself is optional
-    endpoint: string;
-    params?: Record<string, any>;
-    description: string; // Make description required within context as it's always provided or defaulted
-    attempt?: number;
-  };
-}
+import { ApiError, ErrorMapperContext } from '@/types/error';
 
 // Define shapes for errors we might check against without being full types
 interface DOMExceptionLike {
@@ -105,21 +73,12 @@ const isAbortError = (error: unknown): boolean => {
  * or null if they cannot handle the specific error type.
  * @callback ErrorHandler
  * @param {AxiosError} error - The Axios error to handle.
- * @param {object} context - Context information for error processing.
- * @param {string} context.endpoint - API endpoint that failed.
- * @param {Record<string, any>} [context.params] - Request parameters.
- * @param {number} [context.attempt] - Current attempt number.
- * @param {string} context.description - Description of the API operation (guaranteed to be a string by handleApiError).
+ * @param {ErrorMapperContext} context - Context information for error processing.
  * @returns {ApiError|null} Standardized error object with classification or null if not handled.
  */
 type ErrorHandler = (
   error: AxiosError,
-  context: {
-    endpoint: string;
-    params?: Record<string, any>;
-    attempt?: number;
-    description: string; // Explicitly required here as handleApiError guarantees it
-  },
+  context: ErrorMapperContext,
 ) => ApiError | null;
 
 /**
@@ -162,16 +121,12 @@ const errorHandlers: ErrorHandler[] = [
     if (retryAfterHeader != null) {
       const headerStr = String(retryAfterHeader).trim();
 
-      // 1) Numeric value in seconds (may be fractional like "0.5").
-      //    Use Number() so "0.5" becomes 0.5 and we multiply by 1000 -> 500ms.
       const asNumber = Number(headerStr);
       if (!Number.isNaN(asNumber)) {
         retryAfter = Math.round(asNumber * 1000);
       } else {
-        // 2) HTTP-date value. Parse it and compute milliseconds until that date.
         const parsed = Date.parse(headerStr);
         if (!Number.isNaN(parsed)) {
-          // parsed is epoch ms; compute delta (never return negative).
           const delta = parsed - Date.now();
           retryAfter = delta > 0 ? delta : 0;
         }
@@ -214,42 +169,20 @@ const errorHandlers: ErrorHandler[] = [
         context: context,
       };
     }
-    return null; // Should not happen if called within the axios.isAxiosError block in handleApiError, but defensive.
+    return null;
   },
 ];
 
 /**
  * Standardizes API error handling by processing different types of errors
  * and returning a consistent error format (`ApiError`) with classification.
- * This function does NOT perform logging itself. It provides the structured
- * ApiError object which the caller can use for logging, display, and retries.
- * @param {unknown} error - The error to handle (can be AxiosError, Error, or other).
- * @param {object} context - Context information for error handling.
- * @param {string} context.endpoint - API endpoint that failed.
- * @param {Record<string, any>} [context.params] - Request parameters (caution: sensitive data).
- * @param {string} [context.description] - Description of the API operation (e.g., 'Fetch users'). Defaults to 'API Request'.
- * @param {number} [context.attempt] - Current attempt number. Defaults to 1.
- * @returns {ApiError} A standardized error object.
- * @example
- * try {
- *   await apiCall();
- * } catch (error) {
- *   const apiError = handleApiError(error, {
- *     endpoint: '/users',
- *     description: 'Fetch users'
- *   });
- *   // Now use apiError for logging or conditional logic in the caller
- *   if (apiError.isAbort) { log.info('Request aborted', apiError.context); }
- *   else if (apiError.retryable) { log.warn('Transient error', apiError); }
- *   else { log.error('Fatal error', apiError); }
- * }
  */
 export const handleApiError = (
   error: unknown,
   context: {
     endpoint: string;
     params?: Record<string, any>;
-    description?: string; // Input description is optional, will be defaulted
+    description?: string;
     attempt?: number;
   },
 ): ApiError => {
@@ -257,16 +190,21 @@ export const handleApiError = (
     endpoint,
     params,
     description = 'API Request', // Default description if not provided
-    attempt = 1, // Default attempt to 1
+    attempt = 1,
   } = context;
 
   // Create the full context object used internally and in the final ApiError
-  const fullContext = { endpoint, params, description, attempt };
+  const fullContext: ErrorMapperContext = {
+    endpoint,
+    params,
+    description,
+    attempt,
+  };
 
   // Explicitly check if the error is an AxiosError to pass to specific handlers
   if (axios.isAxiosError(error)) {
     for (const handler of errorHandlers) {
-      const result = handler(error, fullContext); // Pass the full context to handlers
+      const result = handler(error, fullContext);
       if (result) {
         // If a handler matched, return its result, ensuring context and original error are present
         return {

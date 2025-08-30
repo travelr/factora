@@ -1,13 +1,18 @@
 // tests/stores/api-store.test-helpers.tsx
 import {
   __test_only_apiStores,
-  type ApiStoreOptions,
-  createApiStore,
+  createApiStoreCore,
   type KeyedApiState,
 } from '@core/api-store-factory';
 import { act, cleanup, render, screen } from '@testing-library/react';
+import {
+  type FactoraDependencies,
+  type FactoraLogger,
+} from '@/types/dependencies';
+import { type ApiStoreOptions } from '@/types/store';
 import { getQueryKey } from '@utils/get-query-key';
-import * as GcRegistry from '@utils/api-store-gc';
+import * as GcRegistry from '@core/api-store-gc';
+import { handleApiError } from '@adapter/axios';
 import { type Mock, vi } from 'vitest';
 import type { StoreApi, UseBoundStore } from 'zustand';
 
@@ -112,15 +117,39 @@ export function createTestableApiStore<T>(
     signal?: AbortSignal,
   ) => Promise<T>,
   options: ApiStoreOptions = {},
-  opts?: { exposeInternal?: boolean },
+  testOpts: {
+    exposeInternal?: boolean;
+    dependencyOverrides?: Partial<FactoraDependencies<T>>;
+  } = {},
 ) {
-  const useApiQuery = createApiStore<T>(apiPathKey, fetchFn, options);
+  const mockLogger: FactoraLogger = {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    getLevel: () => 0,
+    levels: { DEBUG: 1 },
+  };
+
+  const baseDependencies: FactoraDependencies<T> = {
+    fetcher: fetchFn,
+    errorMapper: handleApiError,
+    logger: mockLogger,
+  };
+
+  const dependencies = {
+    ...baseDependencies,
+    ...testOpts.dependencyOverrides,
+  };
+
+  const useApiQuery = createApiStoreCore<T>(dependencies, apiPathKey, options);
+
   // Add explicit type assertion for better type safety
   const internalStore = __test_only_apiStores.get(apiPathKey) as UseBoundStore<
     StoreApi<KeyedApiState<T>>
   >;
 
-  if (!internalStore) {
+  if (!internalStore && apiPathKey) {
     throw new Error(
       `Test setup error: store with key "${apiPathKey}" was not found in the test registry.`,
     );
@@ -128,21 +157,22 @@ export function createTestableApiStore<T>(
 
   return {
     useApiQuery,
+    logger: dependencies.logger,
     // Direct store access for test assertions
-    getStoreState: () => internalStore.getState(),
+    getStoreState: () => internalStore?.getState(),
 
     // Direct method access bound to the store for safe, late execution
-    clearAllQueryStates: () => internalStore.getState().clearAllQueryStates(),
-    clearStaleQueries: () => internalStore.getState().clearStaleQueries(),
+    clearAllQueryStates: () => internalStore?.getState().clearAllQueryStates(),
+    clearStaleQueries: () => internalStore?.getState().clearStaleQueries(),
     clearQueryState: (key: string) =>
-      internalStore.getState().clearQueryState(key),
-    refetchStaleQueries: () => internalStore.getState().refetchStaleQueries(),
+      internalStore?.getState().clearQueryState(key),
+    refetchStaleQueries: () => internalStore?.getState().refetchStaleQueries(),
     setGlobalErrorState: (message: string) =>
-      internalStore.getState().setGlobalErrorState(message),
-    getGlobalError: () => internalStore.getState().globalError,
+      internalStore?.getState().setGlobalErrorState(message),
+    getGlobalError: () => internalStore?.getState().globalError,
 
     // For advanced test scenarios
-    getInternalStore: opts?.exposeInternal
+    getInternalStore: testOpts?.exposeInternal
       ? () => internalStore
       : (undefined as any),
     getQueryKey,
@@ -213,7 +243,7 @@ export const setupApiTest = async <T,>(
   return {
     ...testStore,
     mockFetch,
-    key: testStore.getQueryKey(endpoint, params),
+    key: getQueryKey(endpoint, params),
     rerender: (newParams: Record<string, any> = params) => {
       cleanup();
       render(

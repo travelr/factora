@@ -4,8 +4,10 @@
     "types": ["vitest/globals", "vitest/importMeta", "node"],
     "paths": {
       "@core/*": ["./src/core/*"],
-      "@adapter/*": ["./src/utils/*"],
+      "@adapter/*": ["./src/adapter/*"],
       "@utils/*": ["./src/utils/*"],
+      "@/types": ["./src/types"],
+      "@/types/*": ["./src/types/*"],
       "@test-helper/*": ["./tests/helper/*"],
       "@test-utils/*": ["./tests/utils/*"]
     }

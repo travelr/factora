@@ -12,7 +12,7 @@ import { act, cleanup, render } from '@testing-library/react';
 import {
   startApiStoreGarbageCollector,
   stopApiStoreGarbageCollector,
-} from '@utils/api-store-gc';
+} from '@core/api-store-gc';
 import { subscriptionManager } from '@utils/subscription-registry';
 import React from 'react';
 import { afterEach, describe, expect, test, vi } from 'vitest';

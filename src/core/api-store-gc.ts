@@ -3,7 +3,9 @@
  * across all registered stores at regular intervals. Designed to be idempotent and safe for
  * multiple concurrent starts/stops.
  */
-import log from 'loglevel';
+import type { FactoraLogger } from '@/types/dependencies';
+
+import { noopLogger } from '../utils/noop-logger';
 
 interface GcScheduler {
   setInterval: typeof setInterval;
@@ -15,6 +17,8 @@ export interface GcOptions {
   intervalMs?: number;
   /** An optional scheduler. Used for testing with fake timers. @default globalThis */
   scheduler?: GcScheduler;
+  /** An optional logger implementation. Defaults to a no-op logger. */
+  logger?: FactoraLogger;
 }
 
 const gcStoreRegistry: Array<{ clearStaleQueries: () => void }> = [];
@@ -44,7 +48,7 @@ const GC_GLOBAL_KEY = Symbol.for('__API_STORE_GC_INTERVAL__');
  * @example
  * // In your application's root component (e.g., App.tsx)
  * React.useEffect(() => {
- *   startApiStoreGarbageCollector();
+ *   startApiStoreGarbageCollector({ logger: myAppLogger });
  *   return () => stopApiStoreGarbageCollector();
  * }, []);
  *
@@ -56,7 +60,11 @@ export const startApiStoreGarbageCollector = (options: GcOptions = {}) => {
   const g = globalThis as any;
   if (g[GC_GLOBAL_KEY]) return;
 
-  const { intervalMs = 2 * 60 * 1000, scheduler = globalThis } = options;
+  const {
+    intervalMs = 2 * 60 * 1000,
+    scheduler = globalThis,
+    logger = noopLogger,
+  } = options;
 
   const intervalId: any = scheduler.setInterval(() => {
     // Note: The list of stores is read at the time of the sweep. It's safe if a store
@@ -65,7 +73,8 @@ export const startApiStoreGarbageCollector = (options: GcOptions = {}) => {
       try {
         store.clearStaleQueries();
       } catch (err) {
-        log.error('[GC] store.clearStaleQueries() failed for a store.', err);
+        // Use the injected logger. This makes the GC resilient.
+        logger.error('[GC] store.clearStaleQueries() failed for a store.', err);
       }
     });
   }, intervalMs);
