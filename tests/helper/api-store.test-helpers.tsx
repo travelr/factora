@@ -1,28 +1,27 @@
-// tests/stores/api-store.test-helpers.tsx
+/**
+ * @fileoverview The primary, high-level helper for setting up API store tests.
+ * It orchestrates lower-level utilities for async operations and mock data generation.
+ */
 import {
   __test_only_apiStores,
   createApiStoreCore,
   type KeyedApiState,
 } from '@core/api-store-factory';
-import { act, cleanup, render, screen } from '@testing-library/react';
-import {
-  type FactoraDependencies,
-  type FactoraLogger,
-} from '@/types/dependencies';
-import { type ApiStoreOptions } from '@/types/store';
-import { getQueryKey } from '@utils/get-query-key';
 import * as GcRegistry from '@core/api-store-gc';
-import { handleApiError } from '@adapter/axios';
+import type { FactoraDependencies, FactoraLogger } from '@/types/dependencies';
+import type { ApiError, ErrorMapperContext } from '@/types/error';
+import type { ApiStoreOptions } from '@/types/store';
+import { getQueryKey } from '@utils/get-query-key';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import { type Mock, vi } from 'vitest';
 import type { StoreApi, UseBoundStore } from 'zustand';
 
 import { DataConsumer } from '@test-helper/api-store.test-components';
-
-// Define a proper interface for Vitest with optional async method
-interface Vitest {
-  advanceTimersByTime(ms: number): void;
-  advanceTimersByTimeAsync?(ms: number): Promise<void>;
-}
+import { flushPromises, waitFor } from './async-helpers';
+import {
+  createNonRetryableError,
+  createRetryableError,
+} from './error-generators';
 
 // --- A. Test-local GC Registry & Spy ---
 
@@ -30,7 +29,6 @@ const testGcRegistry = new Set<any>();
 let lastCapturedStoreRef: any = null;
 const originalRegisterStoreForGc = GcRegistry.registerStoreForGc;
 
-// First, we capture the original function before we spy on it.
 vi.spyOn(GcRegistry, 'registerStoreForGc').mockImplementation(
   (storeInstance: any) => {
     lastCapturedStoreRef = storeInstance;
@@ -47,63 +45,23 @@ vi.spyOn(GcRegistry, 'registerStoreForGc').mockImplementation(
   },
 );
 
-// --- B. Hardened Async Helpers ---
+// --- B. Testable Store Factory & Setup ---
 
-/**
- * Robustly flush the microtask queue.
- * IMPORTANT: Do NOT use `setTimeout(0)` or `setImmediate` here, as that can
- * deadlock the test runner when fake timers are enabled. This microtask-only
- * flush is the correct way to ensure promise jobs and React updates settle.
- */
-export const flushPromises = async (): Promise<void> => {
-  await Promise.resolve();
-  await Promise.resolve(); // A second flush handles promises queued by other promises.
+const mockErrorMapper = (
+  error: unknown,
+  context: ErrorMapperContext,
+): ApiError => {
+  const message = error instanceof Error ? error.message : String(error);
+  const anyError = error as any;
+
+  return {
+    message,
+    retryable: anyError.retryable,
+    retryAfter: anyError.retryAfter,
+    originalError: error,
+    context,
+  };
 };
-
-/**
- * Canonical helper for advancing time in tests.
- * It combines the async-friendly timer advance with a promise flush.
- */
-export const advanceTimersWithFlush = async (ms: number): Promise<void> => {
-  await act(async () => {
-    // Cast once to our proper interface
-    const vitest = vi as unknown as Vitest;
-
-    if (vitest.advanceTimersByTimeAsync) {
-      await vitest.advanceTimersByTimeAsync(ms);
-    } else {
-      vitest.advanceTimersByTime(ms);
-    }
-  });
-  await act(flushPromises);
-};
-
-/**
- * Waits for an async condition to be met with precise timing control.
- * @param callback - Function that returns true when condition is met
- * @param options - Configuration for timeout and polling
- * @returns Promise that resolves when condition is met
- */
-const waitFor = async (
-  callback: () => boolean,
-  {
-    timeout,
-    interval,
-    onTimeout,
-  }: { timeout: number; interval: number; onTimeout: () => string },
-) => {
-  const startTime = Date.now();
-  while (!callback()) {
-    if (Date.now() - startTime > timeout) {
-      throw new Error(onTimeout());
-    }
-    // Correctly use the robust, canonical helper for advancing time.
-    await flushPromises();
-    await advanceTimersWithFlush(interval);
-  }
-};
-
-// --- C. Testable Store Factory & Setup ---
 
 /**
  * Creates a testable instance of the API store and its hook, providing a rich
@@ -133,7 +91,7 @@ export function createTestableApiStore<T>(
 
   const baseDependencies: FactoraDependencies<T> = {
     fetcher: fetchFn,
-    errorMapper: handleApiError,
+    errorMapper: mockErrorMapper,
     logger: mockLogger,
   };
 
@@ -196,7 +154,6 @@ export function createTestableApiStore<T>(
   };
 }
 
-// --- Define the explicit return type for setupApiTest to prevent inference errors ---
 type SetupApiTestResult<T> = ReturnType<typeof createTestableApiStore<T>> & {
   mockFetch: Mock<(...args: any[]) => Promise<any>>;
   key: string;
@@ -204,10 +161,6 @@ type SetupApiTestResult<T> = ReturnType<typeof createTestableApiStore<T>> & {
   screen: typeof screen;
 };
 
-/**
- * Centralized test setup function that eliminates boilerplate.
- * Handles fetch mocking, component rendering, and common setup patterns.
- */
 export const setupApiTest = async <T,>(
   endpoint: string,
   options: ApiStoreOptions = {},
@@ -254,31 +207,8 @@ export const setupApiTest = async <T,>(
   };
 };
 
-// --- D. Error Generation Helpers ---
-
-export const createRetryableError = (
-  message: string,
-  retryAfterMs?: number,
-) => {
-  const error: any = new Error(message);
-  error.isAxiosError = true;
-  error.code = 'ERR_NETWORK';
-  error.response = {
-    status: 429,
-    headers: retryAfterMs ? { 'retry-after': String(retryAfterMs / 1000) } : {},
-  };
-  return error;
-};
-
-export const createNonRetryableError = (message: string) => {
-  const error: any = new Error(message);
-  error.retryable = false;
-  error.isAbort = false;
-  return error;
-};
-
+// --- C. Test-only Utilities for Registry Inspection ---
 // --- E. Test-only Utilities for Registry Inspection ---
-
 export const _test_getGcRegistrySize = (): number => testGcRegistry.size;
 
 export const _test_clearGcRegistry = (): void => {

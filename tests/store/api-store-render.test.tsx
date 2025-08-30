@@ -1,4 +1,3 @@
-import type { ApiStoreOptions } from '@core/api-store-factory';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import React from 'react';
 import { afterEach, describe, expect, type Mock, test, vi } from 'vitest';
@@ -7,8 +6,9 @@ import { RenderTracker } from '@test-helper/api-store.test-components';
 import {
   _test_clearGcRegistry,
   createTestableApiStore,
-  flushPromises,
 } from '@test-helper/api-store.test-helpers';
+import { flushPromises } from '@test-helper/async-helpers';
+import { ApiStoreOptions } from '@/types/store';
 
 afterEach(() => {
   // 1. Unmount any React components to prevent memory leaks and side effects.

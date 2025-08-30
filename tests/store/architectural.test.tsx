@@ -7,13 +7,11 @@
  * used as intended.
  */
 import { DataConsumer } from '@test-helper/api-store.test-components';
-import {
-  createTestableApiStore,
-  flushPromises,
-} from '@test-helper/api-store.test-helpers';
+import { createTestableApiStore } from '@test-helper/api-store.test-helpers';
 import { act, render, screen } from '@testing-library/react';
 import type { FactoraLogger } from '@/types/dependencies';
 import { afterEach, describe, expect, test, vi } from 'vitest';
+import { flushPromises } from '@test-helper/async-helpers';
 
 afterEach(() => {
   vi.restoreAllMocks();

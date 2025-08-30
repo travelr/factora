@@ -4,11 +4,13 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import { DataConsumer } from '@test-helper/api-store.test-components';
 import {
   _test_clearGcRegistry,
-  advanceTimersWithFlush,
-  createRetryableError,
   createTestableApiStore,
-  flushPromises,
 } from '@test-helper/api-store.test-helpers';
+import {
+  flushPromises,
+  advanceTimersWithFlush,
+} from '@test-helper/async-helpers';
+import { createRetryableError } from '@test-helper/error-generators';
 
 afterEach(() => {
   // 1. Unmount any React components to prevent memory leaks and side effects.
