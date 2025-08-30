@@ -2,7 +2,10 @@
  * @fileoverview The PURE public entry point for the Factora library.
  * Use this if you want to provide your own dependencies instead of the defaults.
  */
-export { startApiStoreGarbageCollector } from '@core/api-store-gc';
+export {
+  startApiStoreGarbageCollector,
+  stopApiStoreGarbageCollector,
+} from '@core/api-store-gc';
 export {
   clearAllApiStores,
   initializeApiRegistry,
