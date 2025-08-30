@@ -1,0 +1,49 @@
+name: Publish to npm
+
+on:
+  release:
+    types: [created] # Runs when a new GitHub Release is created
+  workflow_dispatch: # Allows manual runs from the Actions tab
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js with pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10 # Adjust if you use a different pnpm version
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org/
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run build
+        run: pnpm build
+
+      - name: Run tests
+        run: pnpm test -- --run
+
+      - name: Verify version matches release tag
+        run: |
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          PKG_VERSION="v$(node -p "require('./package.json').version")"
+          if [ "$TAG_NAME" != "$PKG_VERSION" ]; then
+            echo "❌ Tag ($TAG_NAME) does not match package.json version ($PKG_VERSION)"
+            exit 1
+          fi
+          echo "✅ Tag and package.json version match: $TAG_NAME"
+
+      - name: Publish to npm
+        run: pnpm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

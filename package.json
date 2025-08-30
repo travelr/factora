@@ -1,6 +1,6 @@
 {
   "name": "factora",
-  "version": "0.9.0",
+  "version": "0.9.5",
   "description": "Create consistent, type-safe data hooks for React. Handles caching, retries, and GC so you don't have to.",
   "author": "travelr",
   "license": "MIT",
