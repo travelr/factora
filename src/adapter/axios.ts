@@ -1,265 +1,128 @@
-/* eslint-disable no-unused-vars */ // Keep this as 'isCancel' is used internally but might not be exported for external use from here.
-// src/utils/api-error-handler.ts
-import axios, { AxiosError, isCancel } from 'axios';
+/**
+ * @fileoverview Optional adapter for integrating the Axios library.
+ * This module provides a pre-configured fetcher and a detailed error mapper
+ * that understands Axios-specific error structures.
+ */
+import axios, { type AxiosError, type AxiosInstance, isCancel } from 'axios';
 
-import { ApiError, ErrorMapperContext } from '@/types/error';
+import type { ApiError, ErrorMapperContext } from '@/types/error';
 
-// Define shapes for errors we might check against without being full types
-interface DOMExceptionLike {
-  name: string;
-}
-interface CustomAbortErrorLike {
-  isAbortError: boolean;
-}
-interface MessageErrorLike {
-  message: string;
-}
+// --- Local Helpers for Error Classification ---
 
-// Type guards for safer property access on unknown error types
-const isDOMExceptionLike = (err: unknown): err is DOMExceptionLike =>
-  typeof err === 'object' &&
-  err !== null &&
-  'name' in err &&
-  typeof (err as any).name === 'string';
-
-const isCustomAbortErrorLike = (err: unknown): err is CustomAbortErrorLike =>
-  typeof err === 'object' &&
-  err !== null &&
-  'isAbortError' in err &&
-  (err as any).isAbortError === true; // Use any for flag check as it's custom
-
-const isMessageErrorLike = (err: unknown): err is MessageErrorLike =>
-  typeof err === 'object' &&
-  err !== null &&
-  'message' in err &&
-  typeof (err as any).message === 'string'; // Use any for message check on unknown
+const isDOMExceptionLike = (err: unknown): err is { name: string } =>
+  typeof err === 'object' && err !== null && 'name' in err;
 
 /**
  * Checks if an error indicates a client-side request abortion or cancellation.
- * Handles Axios cancellation, DOMException AbortError (from Fetch API/AbortController),
- * custom flags, and common message patterns.
- * @param {unknown} error - The error object to check.
- * @returns {boolean} True if the error appears to be an abort/cancel error.
+ * This is a critical check for preventing state updates on aborted requests.
  */
 const isAbortError = (error: unknown): boolean => {
   if (!error) return false;
-
-  // Axios cancellation helper
-  if (isCancel(error)) {
-    return true;
-  }
-  // DOMException AbortError (Fetch API, AbortController)
-  if (isDOMExceptionLike(error) && error.name === 'AbortError') {
-    return true;
-  }
-  // Custom flag we might set in custom fetch wrappers
-  if (isCustomAbortErrorLike(error)) {
-    return true;
-  }
-  // Fallback check message for common patterns (less reliable, but for edge cases)
-  if (
-    isMessageErrorLike(error) &&
-    (error.message === 'Request aborted' ||
-      error.message === 'Request cancelled')
-  ) {
-    return true;
-  }
+  // Axios's standard cancellation check.
+  if (isCancel(error)) return true;
+  // The standard DOMException for AbortController signals.
+  if (isDOMExceptionLike(error) && error.name === 'AbortError') return true;
   return false;
 };
 
 /**
- * Type definition for error handler functions.
- * Handlers receive an AxiosError and context, and return a standardized ApiError
- * or null if they cannot handle the specific error type.
- * @callback ErrorHandler
- * @param {AxiosError} error - The Axios error to handle.
- * @param {ErrorMapperContext} context - Context information for error processing.
- * @returns {ApiError|null} Standardized error object with classification or null if not handled.
+ * Parses the 'retry-after' header, which can be in seconds or an HTTP-date.
+ * @param retryAfterHeader The header value from the Axios response.
+ * @returns The delay in milliseconds, or undefined if parsing fails.
  */
-type ErrorHandler = (
-  error: AxiosError,
-  context: ErrorMapperContext,
-) => ApiError | null;
+const parseRetryAfter = (
+  retryAfterHeader: string | number,
+): number | undefined => {
+  const asNumber = Number(retryAfterHeader);
+  // Handles numeric values (e.g., "5" for 5 seconds).
+  if (!Number.isNaN(asNumber)) {
+    return Math.round(asNumber * 1000);
+  }
+
+  // Handles HTTP-date format (e.g., "Wed, 21 Oct 2015 07:28:00 GMT").
+  const parsedDate = Date.parse(String(retryAfterHeader));
+  if (!Number.isNaN(parsedDate)) {
+    const delta = parsedDate - Date.now();
+    return delta > 0 ? delta : 0; // Ensure we don't return a negative delay.
+  }
+
+  return undefined;
+};
 
 /**
- * Array of error handlers that process different types of Axios errors in order.
- * The first handler that returns a non-null ApiError is used.
- * @type {ErrorHandler[]}
+ * An implementation of the `ErrorMapper` contract that is specifically designed
+ * to interpret `AxiosError` objects. It correctly classifies errors as retryable,
+ * handles abort signals, and parses `Retry-After` headers for rate limiting.
+ *
+ * @param error The error thrown by the fetcher (expected to be an AxiosError).
+ * @param context Contextual information about the request that failed.
+ * @returns A standardized `ApiError` object.
  */
-const errorHandlers: ErrorHandler[] = [
-  // Handle Aborted/Cancelled requests using the helper
-  (error, context) => {
-    if (!isAbortError(error)) return null;
+export const axiosErrorMapper = (
+  error: unknown,
+  context: ErrorMapperContext,
+): ApiError => {
+  if (axios.isAxiosError(error)) {
+    const { response, code } = error as AxiosError;
 
-    return {
-      message: `${context.description}: Request aborted`,
-      retryable: false,
-      isAbort: true,
-      errorCode: error.code || 'ABORTED', // AxiosError has 'code' property
-      originalError: error,
-      context: context,
-    };
-  },
-  // Handles request timeout errors (ECONNABORTED, ETIMEDOUT)
-  (error, context) => {
-    if (error.code !== 'ECONNABORTED' && error.code !== 'ETIMEDOUT')
-      return null;
-    return {
-      message: `${context.description}: Request timed out`,
-      retryable: true,
-      errorCode: error.code,
-      originalError: error,
-      context: context,
-    };
-  },
-  // Handles rate limiting errors (HTTP 429)
-  (error, context) => {
-    if (error.response?.status !== 429) return null;
-    const retryAfterHeader = error.response.headers?.['retry-after'];
-    let retryAfter: number | undefined = undefined;
-
-    if (retryAfterHeader != null) {
-      const headerStr = String(retryAfterHeader).trim();
-
-      const asNumber = Number(headerStr);
-      if (!Number.isNaN(asNumber)) {
-        retryAfter = Math.round(asNumber * 1000);
-      } else {
-        const parsed = Date.parse(headerStr);
-        if (!Number.isNaN(parsed)) {
-          const delta = parsed - Date.now();
-          retryAfter = delta > 0 ? delta : 0;
-        }
-      }
-    }
-
-    return {
-      message: `${context.description}: Rate limit exceeded`,
-      retryable: true,
-      retryAfter,
-      status: 429,
-      errorCode: 'HTTP_429',
-      originalError: error,
-      context: context,
-    };
-  },
-  // Handles HTTP error responses (4xx and 5xx status codes)
-  (error, context) => {
-    if (!error.response) return null; // This handler is specifically for errors *with* a response
-    const status = error.response.status;
-    return {
-      message: `${context.description}: HTTP ${status} - ${error.response.statusText || error.message}`,
-      retryable: status >= 500 && status < 600, // Retry server errors (5xx range)
-      status,
-      errorCode: `HTTP_${status}`,
-      originalError: error,
-      context: context,
-    };
-  },
-  // Handles request setup/configuration errors or other Axios errors not matched above
-  (error, context) => {
-    // This is a fallback handler for any remaining AxiosErrors
-    if (axios.isAxiosError(error)) {
+    if (isAbortError(error)) {
       return {
-        message: `${context.description}: Request failed (${error.message})`,
-        retryable: false, // Default to non-retryable for uncategorized Axios errors
-        status: error.response?.status,
-        errorCode: error.code || 'AXIOS_ERROR',
+        message: `${context.description}: Request aborted`,
+        retryable: false,
+        isAbort: true,
+        errorCode: code || 'ERR_CANCELED',
         originalError: error,
-        context: context,
+        context,
       };
     }
-    return null;
-  },
-];
 
-/**
- * Standardizes API error handling by processing different types of errors
- * and returning a consistent error format (`ApiError`) with classification.
- */
-export const handleApiError = (
-  error: unknown,
-  context: {
-    endpoint: string;
-    params?: Record<string, any>;
-    description?: string;
-    attempt?: number;
-  },
-): ApiError => {
-  const {
-    endpoint,
-    params,
-    description = 'API Request', // Default description if not provided
-    attempt = 1,
-  } = context;
+    const isServerFault = response && response.status >= 500;
+    const isRateLimited = response?.status === 429;
+    const isTimeout = code === 'ECONNABORTED';
 
-  // Create the full context object used internally and in the final ApiError
-  const fullContext: ErrorMapperContext = {
-    endpoint,
-    params,
-    description,
-    attempt,
-  };
+    const retryAfter = response?.headers?.['retry-after']
+      ? parseRetryAfter(response.headers['retry-after'])
+      : undefined;
 
-  // Explicitly check if the error is an AxiosError to pass to specific handlers
-  if (axios.isAxiosError(error)) {
-    for (const handler of errorHandlers) {
-      const result = handler(error, fullContext);
-      if (result) {
-        // If a handler matched, return its result, ensuring context and original error are present
-        return {
-          ...result,
-          // Ensure originalError and context are always included even if handler didn't explicitly add them (though they should)
-          originalError: result.originalError ?? error,
-          context: result.context ?? fullContext,
-        };
-      }
-    }
-
-    // Fallback for Axios errors not specifically handled by any of the defined handlers
     return {
-      message: `${description}: An unclassified Axios error occurred (${error.message})`,
-      retryable: false, // Default to non-retryable for uncategorized
-      errorCode: error.code || 'UNCLASSIFIED_AXIOS',
-      status: error.response?.status,
+      message: `${context.description}: ${error.message}`,
+      status: response?.status,
+      retryable: isServerFault || isRateLimited || isTimeout,
+      retryAfter,
+      errorCode: code || (response ? `HTTP_${response.status}` : 'UNKNOWN'),
       originalError: error,
-      context: fullContext,
+      context,
     };
   }
 
-  // Handle generic errors that are not AxiosErrors (e.g., plain Errors, or other exceptions)
-  const message = error instanceof Error ? error.message : String(error);
-  let retryable: boolean | undefined = undefined;
-  let retryAfter: number | undefined = undefined;
-
-  if (error && typeof error === 'object') {
-    // Explicitly check and convert retryable
-    if ('retryable' in error) {
-      const rawRetryable = (error as any).retryable;
-      retryable =
-        rawRetryable === true || rawRetryable === 'true' || rawRetryable === 1;
-    }
-
-    // Explicitly check and convert retryAfter
-    if ('retryAfter' in error) {
-      const rawRetryAfter = (error as any).retryAfter;
-      if (typeof rawRetryAfter === 'number') {
-        retryAfter = rawRetryAfter;
-      } else if (typeof rawRetryAfter === 'string') {
-        const parsed = parseInt(rawRetryAfter, 10);
-        if (!isNaN(parsed)) {
-          retryAfter = parsed;
-        }
-      }
-    }
-  }
-
+  // Fallback for non-Axios errors.
+  const message =
+    error instanceof Error ? error.message : 'An unknown error occurred';
   return {
-    message: `${description}: An unexpected non-Axios error occurred: ${message}`,
-    retryable,
-    retryAfter,
-    errorCode: 'UNEXPECTED_ERROR',
+    message: `${context.description}: ${message}`,
+    retryable: false,
     originalError: error,
-    context: fullContext,
+    context,
+  };
+};
+
+/**
+ * A higher-order function that creates a fetcher compatible with the library's
+ * core, using an Axios instance for network requests.
+ *
+ * @param client An optional Axios instance. Defaults to the global `axios` import.
+ * @returns An async function that fulfills the `fetcher` contract.
+ */
+export const createAxiosFetcher = <T>(client: AxiosInstance = axios) => {
+  return async (
+    endpoint: string,
+    params: Record<string, any>,
+    signal?: AbortSignal,
+  ): Promise<T> => {
+    const response = await client.get<T>(endpoint, {
+      params,
+      signal,
+    });
+    return response.data;
   };
 };

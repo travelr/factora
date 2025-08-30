@@ -13,12 +13,14 @@ import { DataConsumer } from '@test-helper/api-store.test-components';
 import {
   _test_clearGcRegistry,
   _test_getGcRegistrySize,
-  _test_runGlobalGc,
-  advanceTimersWithFlush,
-  createRetryableError,
   createTestableApiStore,
-  flushPromises,
+  _test_runGlobalGc,
 } from '@test-helper/api-store.test-helpers';
+import {
+  flushPromises,
+  advanceTimersWithFlush,
+} from '@test-helper/async-helpers';
+import { createRetryableError } from '@test-helper/error-generators';
 
 afterEach(() => {
   // Isolate the integration tests from each other.

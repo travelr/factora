@@ -6,12 +6,14 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import { DataConsumer } from '@test-helper/api-store.test-components';
 import {
   _test_clearGcRegistry,
-  advanceTimersWithFlush,
-  createRetryableError,
   createTestableApiStore,
-  flushPromises,
   setupApiTest,
 } from '@test-helper/api-store.test-helpers';
+import {
+  advanceTimersWithFlush,
+  flushPromises,
+} from '@test-helper/async-helpers';
+import { createRetryableError } from '@test-helper/error-generators';
 
 // The global setup in `vitest.setup.ts` handles generic timer and mock management.
 
