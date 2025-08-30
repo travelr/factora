@@ -3,7 +3,7 @@
  * This module provides a pre-configured fetcher and a detailed error mapper
  * that understands Axios-specific error structures.
  */
-import axios, { type AxiosError, type AxiosInstance, isCancel } from 'axios';
+import axios, { type AxiosError, isCancel } from 'axios';
 
 import type { ApiError, ErrorMapperContext } from '@/types/error';
 
@@ -103,26 +103,5 @@ export const axiosErrorMapper = (
     retryable: false,
     originalError: error,
     context,
-  };
-};
-
-/**
- * A higher-order function that creates a fetcher compatible with the library's
- * core, using an Axios instance for network requests.
- *
- * @param client An optional Axios instance. Defaults to the global `axios` import.
- * @returns An async function that fulfills the `fetcher` contract.
- */
-export const createAxiosFetcher = <T>(client: AxiosInstance = axios) => {
-  return async (
-    endpoint: string,
-    params: Record<string, any>,
-    signal?: AbortSignal,
-  ): Promise<T> => {
-    const response = await client.get<T>(endpoint, {
-      params,
-      signal,
-    });
-    return response.data;
   };
 };
