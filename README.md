@@ -61,38 +61,6 @@ pnpm add axios loglevel
 
 If you do not install these, you must use the **Pure Factory Pattern** described below.
 
----
-
-### Global Services Setup
-
-For features like automatic garbage collection and refetch-on-focus to work, you need to initialize `factora`'s global services once in your application's root component (e.g., `App.tsx`).
-
-```typescript
-// src/App.tsx
-import React, { useEffect } from 'react';
-import {
-  initializeApiRegistry,
-  startApiStoreGarbageCollector,
-  stopApiStoreGarbageCollector,
-} from 'factora';
-import { loglevelAdapter } from 'factora/adapter/loglevel';
-
-// Inject the logger into Factora's global registry
-initializeApiRegistry({ logger: loglevelAdapter });
-
-function App() {
-  useEffect(() => {
-    // Start the Garbage Collector, providing it with a logger (here loglevel)
-    startApiStoreGarbageCollector({ logger: loglevelAdapter });
-    return () => stopApiStoreGarbageCollector();
-  }, []);
-
-  // ... rest of your application
-}
-```
-
----
-
 ### Core Features
 
 `factora` provides out-of-the-box solutions to difficult async problems.
@@ -234,6 +202,36 @@ function PostDetails({ postId }: { postId: string }) {
       <p>{post.body}</p>
     </article>
   );
+}
+```
+
+---
+
+### Global Services Setup
+
+For features like automatic garbage collection and refetch-on-focus to work, you need to initialize `factora`'s global services once in your application's root component (e.g., `App.tsx`).
+
+```typescript
+// src/App.tsx
+import React, { useEffect } from 'react';
+import {
+  initializeApiRegistry,
+  startApiStoreGarbageCollector,
+  stopApiStoreGarbageCollector,
+} from 'factora';
+import { loglevelAdapter } from 'factora/adapter/loglevel';
+
+// Inject the logger into Factora's global registry
+initializeApiRegistry({ logger: loglevelAdapter });
+
+function App() {
+  useEffect(() => {
+    // Start the Garbage Collector, providing it with a logger (here loglevel)
+    startApiStoreGarbageCollector({ logger: loglevelAdapter });
+    return () => stopApiStoreGarbageCollector();
+  }, []);
+
+  // ... rest of your application
 }
 ```
 
