@@ -61,6 +61,8 @@ pnpm add axios loglevel
 
 If you do not install these, you must use the **Pure Factory Pattern** described below.
 
+---
+
 ### Core Features
 
 `factora` provides out-of-the-box solutions to difficult async problems.
