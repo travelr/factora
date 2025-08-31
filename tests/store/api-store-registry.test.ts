@@ -11,20 +11,12 @@ import {
   StoreActions,
   _test_only_apiRegistry,
 } from '@core/api-store-registry';
-import type { FactoraLogger } from '@/types/dependencies';
+
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { Mock } from 'vitest';
+import { mockLogger } from '@test-helper/test-helpers';
 
 describe('API Registry Integration', () => {
-  const mockLogger: FactoraLogger = {
-    error: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    debug: vi.fn(),
-    getLevel: () => 0,
-    levels: { DEBUG: 1 },
-  };
-
   const createMockStore = (): StoreActions => ({
     refetchStaleQueries: vi.fn(),
     clearAllQueryStates: vi.fn(),

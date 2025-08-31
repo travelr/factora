@@ -98,37 +98,34 @@ describe('API store GC + subscription registry', () => {
       expectedFetches: 2,
       gcGracePeriod: 50,
     },
-  ])(
-    'Verifies GC $description',
-    async ({ advanceTime, expectedFetches, gcGracePeriod }) => {
-      const mockFetch = vi.fn(async () => ({ data: 'data' }));
-      const { useApiQuery, clearStaleQueries } = createTestableApiStore(
-        '/api/v1/test',
-        mockFetch,
-        { gcGracePeriod },
-      );
-      const Consumer = createSubscriptionComponent(useApiQuery);
+  ])('Verifies GC $description', async ({ expectedFetches, gcGracePeriod }) => {
+    const mockFetch = vi.fn(async () => ({ data: 'data' }));
+    const { useApiQuery, clearStaleQueries } = createTestableApiStore(
+      '/api/v1/test',
+      mockFetch,
+      { gcGracePeriod },
+    );
+    const Consumer = createSubscriptionComponent(useApiQuery);
 
-      // ACT
-      // 1. Mount and then immediately unmount to remove all subscribers.
-      const { unmount } = render(<Consumer />);
-      await act(flushPromises);
-      unmount();
+    // ACT
+    // 1. Mount and then immediately unmount to remove all subscribers.
+    const { unmount } = render(<Consumer />);
+    await act(flushPromises);
+    unmount();
 
-      // 2. Advance time to make the cached data "stale".
-      await advanceTimersWithFlush(100);
+    // 2. Advance time to make the cached data "stale".
+    await advanceTimersWithFlush(100);
 
-      // 3. Run a GC sweep.
-      act(() => clearStaleQueries());
+    // 3. Run a GC sweep.
+    act(() => clearStaleQueries());
 
-      // ASSERT
-      // Re-mount the component. If eviction worked, the store has no data for this query
-      // and must trigger a new network request.
-      render(<Consumer />);
-      await act(flushPromises);
-      expect(mockFetch).toHaveBeenCalledTimes(expectedFetches);
-    },
-  );
+    // ASSERT
+    // Re-mount the component. If eviction worked, the store has no data for this query
+    // and must trigger a new network request.
+    render(<Consumer />);
+    await act(flushPromises);
+    expect(mockFetch).toHaveBeenCalledTimes(expectedFetches);
+  });
 
   /**
    * Verifies that the GC handles corrupted state gracefully by not evicting
