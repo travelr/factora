@@ -250,6 +250,13 @@ export const createApiStoreCore = <T>(
 
           // Always check the token before writing an error state.
           if (!apiError.isAbort) {
+            if (attempt >= retryAttempts || !apiError.retryable) {
+              // We only log if it's the FINAL attempt, to avoid spam on transient errors.
+              logger.error(`[${description}] Fetch failed for query: ${key}`, {
+                error: apiError,
+              });
+            }
+
             setQueryState(key, (s) => {
               if (s.inFlightToken !== inFlightToken) return s; // Discard stale error
               return { ...s, error: apiError };
