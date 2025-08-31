@@ -9,7 +9,7 @@ import type { StoreApi, UseBoundStore } from 'zustand';
  * A minimal, correct shallow equality checker for arrays or flat objects.
  * Used to prevent subscription listeners from firing unnecessarily.
  */
-function shallowEqual(a: any, b: any): boolean {
+export function shallowEqual(a: any, b: any): boolean {
   if (Object.is(a, b)) return true;
   if (typeof a !== 'object' || typeof b !== 'object' || !a || !b) return false;
 
@@ -67,7 +67,13 @@ export function subscribeToQueryCount<T extends { queryCount: number }>(
     const nextCount = state.queryCount;
     if (prevCount !== nextCount) {
       prevCount = nextCount;
-      listener(nextCount);
+      try {
+        listener(nextCount);
+        // eslint-disable-next-line unused-imports/no-unused-vars
+      } catch (error) {
+        // Pure function constraint: cannot log
+        // But must not break subscription chain - swallow error
+      }
     }
   });
 }

@@ -16,38 +16,63 @@ export const getQueryKey = (
   endpoint: string,
   params?: Record<string, unknown> | null,
 ): string => {
-  // Input validation for endpoint. A pure utility must throw an error on invalid input.
   if (typeof endpoint !== 'string' || endpoint.length === 0) {
     throw new TypeError(
       `[getQueryKey] Invalid endpoint provided. Expected a non-empty string, but received: ${endpoint}`,
     );
   }
 
-  // Handle null/undefined params case explicitly
+  // Coalesce null or undefined params to an empty object for consistent handling.
   const safeParams = params ?? {};
 
-  // Sort keys for consistent stringification output
-  // Object.fromEntries preserves the order of keys from the sorted array.
-  const sortedParams = Object.fromEntries(
-    Object.entries(safeParams).sort(([keyA], [keyB]) =>
-      keyA.localeCompare(keyB),
-    ),
-  );
+  try {
+    // A WeakSet is used to track objects we have already seen during serialization.
+    // It's chosen over a standard Set because it holds weak references, preventing memory leaks
+    // by not stopping the garbage collector from removing objects that are no longer in use.
+    const seen = new WeakSet();
+    const getCircularReplacer = () => (key: string, value: any) => {
+      // This "replacer" function is called by JSON.stringify for each key/value pair.
+      if (typeof value === 'object' && value !== null) {
+        if (seen.has(value)) {
+          // If we have already serialized this object in this path, we have a circular reference.
+          throw new Error(
+            `[getQueryKey] Circular reference detected in query parameters at key "${key}". ` +
+              `Query parameters cannot contain circular references.`,
+          );
+        }
+        seen.add(value);
+      }
+      return value;
+    };
 
-  // JSON.stringify handles Date objects by converting them to ISO strings (YYYY-MM-DDTHH:mm:ss.sssZ).
-  // The structure of the key is explicitly { endpoint: string, params: Record<string, unknown> }
-  return JSON.stringify({ endpoint, params: sortedParams });
+    // To ensure the output is always the same for the same parameters, regardless of their
+    // original order, we create a new object from the entries of the params, sorted by key.
+    const sortedParams = Object.fromEntries(
+      Object.entries(safeParams).sort(([keyA], [keyB]) =>
+        keyA.localeCompare(keyB),
+      ),
+    );
+
+    return JSON.stringify(
+      { endpoint, params: sortedParams },
+      getCircularReplacer(),
+    );
+  } catch (error: unknown) {
+    // Re-throw our specific circular reference error if it was the cause.
+    if (error instanceof Error && error.message.includes('circular')) {
+      throw error;
+    }
+    // Provide a more generic error for other stringification failures.
+    throw new Error(
+      `[getQueryKey] Failed to create query key: ${(error as Error).message}. ` +
+        `Parameters: ${JSON.stringify(safeParams).substring(0, 100)}...`,
+    );
+  }
 };
 
 /**
  * Parses a query key back into its endpoint and parameters.
- * Uses a specific reviver function with JSON.parse to convert strings that are
- * in the *exact* ISO 8601 format produced by JSON.stringify for Dates back into Date objects.
- * This prevents unintended conversion of simple date strings (like 'yyyy-MM-dd').
- * Includes validation of the parsed structure.
- *
- * Optimization: Adds preliminary checks (type, length, specific characters)
- * before applying the regex test, significantly reducing the number of regex executions.
+ * Uses a specific reviver function with JSON.parse to convert ISO 8601 date strings back into Date objects.
  *
  * @param key - The string key to parse
  * @returns Object with endpoint and params
@@ -56,79 +81,62 @@ export const getQueryKey = (
 export const parseQueryKey = (
   key: string,
 ): { endpoint: string; params: Record<string, unknown> } => {
-  try {
-    // Regex to specifically match the ISO 8601 format produced by JSON.stringify for Date objects.
-    // This format includes 'T', milliseconds (.sss), and 'Z' (UTC indicator).
-    // Kept for precise structural validation *after* quick checks pass.
-    const ISO_DATE_STRING_REGEX =
-      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
-    const ISO_DATE_STRING_LENGTH = 24; // "YYYY-MM-DDTHH:mm:ss.sssZ".length
+  if (typeof key !== 'string' || key.length === 0) {
+    throw new Error(
+      `Failed to parse query key. Reason: parseQueryKey expects a non-empty string.`,
+    );
+  }
 
-    // Use JSON.parse with a reviver function.
+  try {
+    // This regex specifically matches the ISO 8601 format that `JSON.stringify(new Date())` produces.
+    // It is intentionally strict to avoid accidentally converting user-provided strings
+    // like "2025-08-30" into Date objects.
+    // Breakdown:
+    // ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}  - Matches "YYYY-MM-DDTHH:mm:ss"
+    // (?:\.\d{1,3})?                      - Optionally matches milliseconds (".sss")
+    // (?:Z|[+-]\d{2}:\d{2})$              - Matches a literal "Z" (Zulu/UTC) or a timezone offset like "+05:30"
+    const ISO_DATE_REGEX =
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
+
+    // The second argument to JSON.parse is a "reviver" function. It's called for every
+    // key-value pair during parsing, allowing us to transform values on the fly.
     const parsed = JSON.parse(key, (_k, value) => {
-      // --- Performance Optimization: Quick checks before regex ---
-      // 1. Check if it's a string.
-      // 2. Check if the length matches the expected ISO format length (24 chars).
-      // 3. Check if specific, fixed characters are in the expected positions.
-      //    This filters out most strings that can't possibly be the target date format.
-      if (
-        typeof value === 'string' &&
-        value.length === ISO_DATE_STRING_LENGTH &&
-        value[4] === '-' &&
-        value[7] === '-' &&
-        value[10] === 'T' && // 'T' separator
-        value[13] === ':' &&
-        value[16] === ':' &&
-        value[19] === '.' && // Milliseconds separator
-        value[23] === 'Z' // UTC indicator
-      ) {
-        // If quick checks pass, perform the more precise regex test.
-        // The regex ensures the *digits* and overall structure are correct.
-        if (ISO_DATE_STRING_REGEX.test(value)) {
-          // Attempt to create a Date object from the string.
-          const date = new Date(value);
-          // Check if the resulting Date object is valid (parsing didn't result in Invalid Date).
-          if (!isNaN(date.getTime())) {
-            // If it's a valid date in the expected format, return the Date object.
-            return date;
-          }
-          // If the string matched the regex but didn't produce a valid date (shouldn't happen
-          // with the specific ISO format string from JSON.stringify, but good defensive check),
-          // fall through and return the original string.
+      if (typeof value === 'string' && ISO_DATE_REGEX.test(value)) {
+        const date = new Date(value);
+        // `new Date(invalid_string)` can result in an "Invalid Date" object.
+        // This check ensures we only return valid Date objects.
+        if (!Number.isNaN(date.getTime())) {
+          return date;
         }
       }
-      // If the value is not a string, or it failed the quick checks,
-      // or it failed the regex test, return the value unchanged.
       return value;
-    }) as unknown; // Cast to unknown initially for safety
+    }) as unknown;
 
-    // --- Validation after parsing and reviving ---
-    // Ensure the parsed result has the expected top-level structure:
-    // must be a non-null object with a string 'endpoint' and an object 'params'.
+    // This large conditional acts as a type guard, ensuring the parsed object has the exact
+    // structure we expect ({ endpoint: string, params: object }).
     if (
       !parsed ||
       typeof parsed !== 'object' ||
       !('endpoint' in parsed) ||
       !('params' in parsed) ||
-      typeof parsed.endpoint !== 'string' ||
-      typeof parsed.params !== 'object' ||
-      parsed.params === null
+      typeof (parsed as any).endpoint !== 'string' ||
+      typeof (parsed as any).params !== 'object' ||
+      (parsed as any).params === null
     ) {
-      // A pure utility throws; it does not log. The caller is responsible for logging.
       throw new Error('Invalid query key structure after parsing');
     }
 
-    // Return the validated and revived object.
-    // 'params' will contain Date objects only for values that were ISO strings matching the regex
-    // after passing the quick checks. Other strings will remain strings.
     return {
-      endpoint: parsed.endpoint,
-      params: parsed.params as Record<string, unknown>,
+      endpoint: (parsed as any).endpoint,
+      params: (parsed as any).params as Record<string, unknown>,
     };
-  } catch (error: any) {
-    // Re-throw a new, more specific error to the caller. Do not log here.
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // For debugging, provide a preview of the malformed key without logging the entire thing.
+    const preview =
+      key.length > 60 ? `${key.slice(0, 60)}... (len=${key.length})` : key;
     throw new Error(
-      `Failed to parse query key. Reason: ${error.message || 'Unknown parsing error'}. Key was: "${key}"`,
+      `Failed to parse query key. Reason: ${msg}. Key preview: "${preview}"`,
     );
   }
 };
