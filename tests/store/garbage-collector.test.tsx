@@ -1,22 +1,18 @@
 /**
- * tests/stores/api-store-gc.test.tsx
- *
  * @fileoverview This test suite validates the garbage collection (GC) and lifecycle
  * management of the API store.
  */
-
 import '@testing-library/jest-dom';
-
 import { _test_only_apiRegistry } from '@core/api-store-registry';
 import { act, cleanup, render } from '@testing-library/react';
 import {
+  registerStoreForGc,
   startApiStoreGarbageCollector,
   stopApiStoreGarbageCollector,
 } from '@core/api-store-gc';
 import { subscriptionManager } from '@utils/subscription-registry';
 import React from 'react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-
 import { DataConsumer } from '@test-helper/test-components';
 import {
   _test_clearGcRegistry,
@@ -28,19 +24,21 @@ import {
 } from '@test-helper/async-helpers';
 
 afterEach(() => {
-  // 1. Unmount any React components to prevent memory leaks and side effects.
-  cleanup();
+  // Stop any running global garbage collector to ensure test isolation.
+  stopApiStoreGarbageCollector();
 
-  // 2. Clear all global registries to ensure perfect test isolation.
+  // Unmount components and clear all global registries.
+  cleanup();
   _test_clearGcRegistry();
-  _test_only_apiRegistry?.clearRegistry(); // Use the new helper object
+  _test_only_apiRegistry?.clearRegistry();
   (subscriptionManager as any)._clearAll();
 });
 
 /**
- * Helper function to create a minimal React component that subscribes to a store hook.
+ * Creates a minimal React component that subscribes to a given store hook.
+ * This is a lightweight helper for testing mount and unmount behavior.
  */
-function makeConsumer(
+function createSubscriptionComponent(
   useStoreHook: (params?: Record<string, any>) => any,
   params?: Record<string, any>,
 ) {
@@ -54,26 +52,23 @@ function makeConsumer(
 }
 
 describe('API store GC + subscription registry', () => {
-  // --- TEST CASE 1: The Primary Safeguard ---
-  test('Verifies GC preserves data while component is mounted', async () => {
-    // PURPOSE: This is the most important test. It ensures that an active subscriber
-    // (a mounted component) will ALWAYS prevent its data from being garbage collected,
-    // even if the data is long past its stale date.
-
-    // ARRANGE
+  /**
+   * This is the primary safeguard test. It ensures an active component subscription
+   * will always prevent its data from being garbage collected, even if the data
+   * is long past its stale date.
+   */
+  test('Verifies GC preserves data while a component is mounted', async () => {
     const mockFetch = vi.fn(async () => ({ data: [{ id: 1 }] }));
     const { useApiQuery, clearStaleQueries } = createTestableApiStore(
       '/api/v1/tx',
       mockFetch,
       { gcGracePeriod: 50 },
     );
-    const Consumer = makeConsumer(useApiQuery);
+    const Consumer = createSubscriptionComponent(useApiQuery);
 
-    // ACT (Phase 1)
     render(<Consumer />);
     await act(flushPromises);
 
-    // Advance time far beyond the grace period.
     await advanceTimersWithFlush(100);
 
     // Run a GC sweep while the component is still mounted.
@@ -87,78 +82,57 @@ describe('API store GC + subscription registry', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  // --- TEST CASE 2: The "Happy Path" for Eviction ---
-  test('Verifies GC evicts data after component unmounts and TTL expires', async () => {
-    // PURPOSE: Validates the core GC logic: when a query has no subscribers AND is
-    // older than its grace period, it should be removed from memory.
+  /**
+   * Validates the core GC logic for the grace period after a component unmounts.
+   */
+  test.each([
+    {
+      description: 'preserves data within the grace period',
+      advanceTime: 500,
+      expectedFetches: 1,
+      gcGracePeriod: 1000,
+    },
+    {
+      description: 'evicts data after the grace period expires',
+      advanceTime: 100,
+      expectedFetches: 2,
+      gcGracePeriod: 50,
+    },
+  ])(
+    'Verifies GC $description',
+    async ({ advanceTime, expectedFetches, gcGracePeriod }) => {
+      const mockFetch = vi.fn(async () => ({ data: 'data' }));
+      const { useApiQuery, clearStaleQueries } = createTestableApiStore(
+        '/api/v1/test',
+        mockFetch,
+        { gcGracePeriod },
+      );
+      const Consumer = createSubscriptionComponent(useApiQuery);
 
-    // ARRANGE
-    const mockFetch = vi.fn(async () => ({ data: 'data' }));
-    const { useApiQuery, clearStaleQueries } = createTestableApiStore(
-      '/api/v1/foo',
-      mockFetch,
-      { gcGracePeriod: 50 },
-    );
-    const Consumer = makeConsumer(useApiQuery);
+      // ACT
+      // 1. Mount and then immediately unmount to remove all subscribers.
+      const { unmount } = render(<Consumer />);
+      await act(flushPromises);
+      unmount();
 
-    // ACT
-    // 1. Mount and then immediately unmount to remove all subscribers.
-    const { unmount } = render(<Consumer />);
-    await act(flushPromises);
-    unmount();
+      // 2. Advance time to make the cached data "stale".
+      await advanceTimersWithFlush(100);
 
-    // 2. Advance time to make the cached data "stale".
-    await advanceTimersWithFlush(100);
+      // 3. Run a GC sweep.
+      act(() => clearStaleQueries());
 
-    // 3. Run a GC sweep.
-    act(() => clearStaleQueries());
-
-    // ASSERT
-    // Re-mount the component. If eviction worked, the store has no data for this query
-    // and must trigger a new network request.
-    render(<Consumer />);
-    await act(flushPromises);
-    expect(mockFetch).toHaveBeenCalledTimes(2);
-  });
-
-  // --- TEST CASE 3: The Grace Period Logic ---
-  test('Verifies GC preserves data during grace period after unmount', async () => {
-    // PURPOSE: Ensures the `gcGracePeriod` is respected. A query should not be evicted
-    // immediately upon unsubscription; it should wait for the grace period to elapse.
-    // This allows for quick remounts (e.g., fast navigation) to reuse the cache.
-
-    // ARRANGE
-    const mockFetch = vi.fn(async () => ({ data: 'cached data' }));
-    const { useApiQuery, clearStaleQueries } = createTestableApiStore(
-      '/api/v1/not-stale',
-      mockFetch,
-      { gcGracePeriod: 1000 },
-    );
-    const Consumer = makeConsumer(useApiQuery);
-
-    // ACT
-    // 1. Mount and unmount.
-    const { unmount } = render(<Consumer />);
-    await act(flushPromises);
-    unmount();
-
-    // 2. Advance time, but by an amount *less than* the grace period.
-    await advanceTimersWithFlush(500);
-
-    // 3. Run a GC sweep.
-    act(() => clearStaleQueries());
-
-    // ASSERT
-    // Re-mount the component. Since the grace period had not passed, the data should
-    // still be in the cache, and no new fetch should occur.
-    render(<Consumer />);
-    await act(flushPromises);
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-  });
+      // ASSERT
+      // Re-mount the component. If eviction worked, the store has no data for this query
+      // and must trigger a new network request.
+      render(<Consumer />);
+      await act(flushPromises);
+      expect(mockFetch).toHaveBeenCalledTimes(expectedFetches);
+    },
+  );
 
   /**
-   * Verifies that the GC handles queries with invalid (e.g., NaN) timestamps
-   * gracefully by not evicting them, preventing crashes or unexpected data loss.
+   * Verifies that the GC handles corrupted state gracefully by not evicting
+   * queries with an invalid timestamp, preventing unexpected crashes.
    */
   test('Verifies GC does not evict a query with an invalid timestamp', async () => {
     const mockFetch = vi.fn(async () => ({ data: 'timestamp data' }));
@@ -169,57 +143,46 @@ describe('API store GC + subscription registry', () => {
         { gcGracePeriod: 50 },
         { exposeInternal: true },
       );
-
-    const Consumer = makeConsumer(useApiQuery);
+    const Consumer = createSubscriptionComponent(useApiQuery);
     const key = getQueryKey('/api/timestamp', {});
     const internalStore = getInternalStore();
 
-    // 1. Mount, fetch, and unmount to make the query eligible for GC.
     const { unmount } = render(<Consumer />);
     await act(flushPromises);
     unmount();
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
-    // 2. Manually corrupt the state to simulate a bug.
+    // Manually corrupt the state's timestamp to simulate a bug.
     act(() => {
       internalStore.setState((s: { queries: { [x: string]: any } }) => ({
         queries: {
           ...s.queries,
-          [key]: {
-            ...s.queries[key],
-            lastFetchTimestamp: NaN, // Invalid timestamp
-          },
+          [key]: { ...s.queries[key], lastFetchTimestamp: NaN },
         },
       }));
     });
 
-    // 3. Advance time and run GC.
     await advanceTimersWithFlush(100);
     act(() => clearStaleQueries());
 
-    // 4. ASSERT: Verify query state remains in store after GC
+    // ASSERT: The corrupted query state should remain in the store after the GC sweep.
     const stateAfterGC = internalStore.getState();
     expect(stateAfterGC.queries[key]).toBeDefined();
     expect(stateAfterGC.queries[key].lastFetchTimestamp).toBeNaN();
   });
 
-  // --- TEST CASE 4: The Polling Safeguard ---
-  test('Verifies GC preserves data with active polling timer', async () => {
-    // PURPOSE: Ensures that queries with an active `refetchInterval` are never garbage
-    // collected, even if they have no subscribers and their data is stale. They are
-    // considered "background services" that must persist.
-
-    // ARRANGE
+  /**
+   * Ensures that queries with an active refetchInterval are treated like background
+   * services and are never garbage collected, even with no active subscribers.
+   */
+  test('Verifies GC preserves data for a query with an active polling timer', async () => {
     const mockFetch = vi.fn(async () => ({ data: 'polling data' }));
     const { useApiQuery, clearStaleQueries } = createTestableApiStore(
       '/api/v1/polling',
       mockFetch,
-      {
-        gcGracePeriod: 50,
-        refetchIntervalMinutes: 0.002, // 120ms
-      },
+      { gcGracePeriod: 50, refetchIntervalMinutes: 0.002 }, // 120ms
     );
-    const Consumer = makeConsumer(useApiQuery);
+    const Consumer = createSubscriptionComponent(useApiQuery);
 
     // ACT
     // 1. Mount and unmount to start the polling mechanism and then remove the subscriber.
@@ -241,85 +204,61 @@ describe('API store GC + subscription registry', () => {
     expect(mockFetch).toHaveBeenCalledTimes(2); // The poll successfully triggered a new fetch.
   });
 
-  // --- TEST CASE 5: The Store Lifecycle Edge Case ---
-  test('Verifies store deregistration cancels when new subscriber appears', async () => {
-    // PURPOSE: This is a critical race condition test. It ensures that if a store becomes
-    // empty (scheduling its own removal from the GC) but a new component subscribes
-    // before that removal happens, the removal is correctly cancelled.
-
-    // ARRANGE
+  /**
+   * This is a critical race condition test. It ensures that if a store becomes
+   * eligible for deregistration, but a new component subscribes before that
+   * happens, the deregistration is correctly cancelled.
+   */
+  test('Verifies store deregistration is cancelled when a new subscriber appears', async () => {
     const mockFetch = vi.fn(async (_endpoint, params) => ({ data: params }));
     const { useApiQuery, clearStaleQueries } = createTestableApiStore(
       '/api/v1/deregister-test',
       mockFetch,
-      {
-        gcGracePeriod: 50,
-      },
+      { gcGracePeriod: 50 },
     );
-    const Consumer1 = makeConsumer(useApiQuery, { id: 1 });
-    const Consumer2 = makeConsumer(useApiQuery, { id: 2 });
+    const Consumer1 = createSubscriptionComponent(useApiQuery, { id: 1 });
+    const Consumer2 = createSubscriptionComponent(useApiQuery, { id: 2 });
 
-    // ACT
-    // 1. Make the store empty to start the 1500ms deregistration timer.
+    /**
+     * Phase 1: Evict all queries to make the store empty, starting the
+     * deregistration timer.
+     */
     const { unmount: unmount1 } = render(<Consumer1 />);
     await act(flushPromises); // Fetch #1
     unmount1();
-    await advanceTimersWithFlush(60); // Make stale.
-    act(() => clearStaleQueries()); // Evict. Store is now empty.
+    await advanceTimersWithFlush(60);
+    act(() => clearStaleQueries());
 
-    // 2. Before the 1500ms timer fires, mount a new component. This should cancel deregistration.
+    /**
+     * Phase 2: Before the deregistration timer fires, mount a new component,
+     * which should cancel the pending deregistration.
+     */
     await advanceTimersWithFlush(50);
     const { unmount: unmount2 } = render(<Consumer2 />);
     await act(flushPromises); // Fetch #2
 
-    // 3. Let the original timer deadline pass, then make the store empty again.
+    /**
+     * Phase 3: Let the original timer deadline pass, then make the store empty again.
+     */
     await advanceTimersWithFlush(1500);
     unmount2();
-    await advanceTimersWithFlush(60); // Make stale again.
-
-    // 4. Run GC. If deregistration was cancelled, the store is still being watched,
-    // and this sweep will successfully evict the stale data for Consumer2.
+    await advanceTimersWithFlush(60);
     act(() => clearStaleQueries());
 
-    // ASSERT
-    // Re-mount the first consumer. Its data was evicted in step 1. Because the store
-    // was never deregistered, a new fetch should occur.
+    /**
+     * Phase 4: Verify the store remains active by re-subscribing.
+     * A new fetch proves the store was never deregistered.
+     */
     render(<Consumer1 />);
     await act(flushPromises); // Fetch #3
-
-    // The third fetch is the proof that the store's lifecycle management is robust.
     expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 
-  // --- TEST CASE 6: The Global Utility Test ---
-  test('Verifies GC start/stop is idempotent for HMR safety', () => {
-    // PURPOSE: This test is different. It doesn't check a specific store's logic.
-    // Instead, it validates that the global utility functions for starting and stopping
-    // the GC interval are safe to be called multiple times (e.g., during Hot Module
-    // Replacement in development) without creating memory leaks from multiple intervals.
-
-    // This test correctly interacts with the real global functions, not the testable wrapper.
-    startApiStoreGarbageCollector({ intervalMs: 100 });
-    const g = globalThis as any;
-    const firstIntervalId = g[Symbol.for('__API_STORE_GC_INTERVAL__')];
-    expect(firstIntervalId).toBeDefined();
-
-    // Calling start again should be a no-op.
-    startApiStoreGarbageCollector({ intervalMs: 100 });
-    const secondIntervalId = g[Symbol.for('__API_STORE_GC_INTERVAL__')];
-    expect(secondIntervalId).toBe(firstIntervalId); // Must be the same interval.
-
-    stopApiStoreGarbageCollector();
-    expect(g[Symbol.for('__API_STORE_GC_INTERVAL__')]).toBeUndefined();
-  });
-
   /**
-   * This is a black-box test that verifies the public behavior of the global
-   * `refetchAllStaleQueries` utility without spying on internal methods. It
-   * confirms that calling it triggers new network requests for all stale queries
-   * across all registered stores.
+   * Verifies that the per-store `refetchStaleQueries` utility correctly
+   * triggers network requests for all stale data within that store.
    */
-  test('Verifies refetchAllStaleQueries triggers network requests for stale data', async () => {
+  test('Verifies refetchStaleQueries triggers network requests for stale data', async () => {
     const mockFetch1 = vi.fn().mockResolvedValue({ value: 'store1' });
     const mockFetch2 = vi.fn().mockResolvedValue({ value: 'store2' });
 
@@ -355,10 +294,11 @@ describe('API store GC + subscription registry', () => {
   });
 
   /**
-   * This test verifies that the hook behaves correctly under React's Strict Mode,
-   * where effects are run twice to detect cleanup issues.
+   * Verifies that the hook correctly handles React's Strict Mode, where effects
+   * are run twice to detect cleanup issues, without causing duplicate fetches
+   * or incorrect subscription counts.
    */
-  test('Verifies hook handles React Strict Mode double subscription correctly', async () => {
+  test('Verifies the hook handles React Strict Mode correctly', async () => {
     const mockFetch = vi.fn(async () => ({ value: 'strict data' }));
     const { useApiQuery, getQueryKey } = createTestableApiStore(
       '/api/strict',
@@ -366,13 +306,11 @@ describe('API store GC + subscription registry', () => {
     );
     const key = getQueryKey('/api/strict', {});
 
-    // Explicitly render with StrictMode to trigger the double-effect behavior.
     render(
       <React.StrictMode>
         <DataConsumer useApiQuery={useApiQuery} />
       </React.StrictMode>,
     );
-
     await act(flushPromises);
 
     // 1. Verify that the store's deduplication prevented a second network request.
@@ -389,10 +327,10 @@ describe('API store GC + subscription registry', () => {
   });
 
   /**
-   * Verifies that rapid mount/unmount cycles do not lead to memory leaks (orphaned
-   * subscriptions) or redundant network requests.
+   * This stress test Verifies that rapid mount/unmount cycles do not lead to
+   * memory leaks (orphaned subscriptions) or redundant network requests.
    */
-  test('Verifies hook handles rapid mount/unmount cycles without memory leaks', async () => {
+  test('Verifies rapid mount/unmount cycles do not cause memory leaks', async () => {
     const mockFetch = vi.fn(async () => ({ value: 'rapid data' }));
     const { useApiQuery, getQueryKey } = createTestableApiStore(
       '/api/rapid',
@@ -403,25 +341,84 @@ describe('API store GC + subscription registry', () => {
     // Simulate extremely rapid mount/unmount cycles.
     for (let i = 0; i < 10; i++) {
       const { unmount } = render(<DataConsumer useApiQuery={useApiQuery} />);
-      // A minimal flush to allow the useEffect to fire.
-      await act(async () => {
-        await Promise.resolve();
-      });
+      await act(async () => await Promise.resolve());
       unmount();
     }
     // A final flush to ensure all async effects (including fetches) from the loop settle.
     await act(flushPromises);
 
-    // 1. Verify only ONE fetch occurred in total, proving deduplication worked correctly
-    // across the rapid mounting.
+    // ASSERT: Only ONE fetch occurred, proving deduplication worked correctly.
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
-    // 2. Verify that no subscriptions remain. This is a direct test for memory leaks
-    // in the subscription logic. Using the internal accessor is the most efficient way
-    // to confirm that the cleanup function for every mount was correctly called.
+    // ASSERT: No subscriptions remain, proving no memory leaks.
     const subscriberCount = (subscriptionManager as any)._getSubscriberCount(
       key,
     );
     expect(subscriberCount).toBe(0);
+  });
+
+  /**
+   * Ensures the global garbage collector correctly invokes the cleanup
+   * method on all stores that are registered with it.
+   */
+  test('Verifies the GC sweep calls clearStaleQueries on all registered stores', async () => {
+    const mockStore1 = { clearStaleQueries: vi.fn() };
+    const mockStore2 = { clearStaleQueries: vi.fn() };
+    registerStoreForGc(mockStore1);
+    registerStoreForGc(mockStore2);
+
+    startApiStoreGarbageCollector({ intervalMs: 100 });
+    await advanceTimersWithFlush(150);
+
+    expect(mockStore1.clearStaleQueries).toHaveBeenCalledTimes(1);
+    expect(mockStore2.clearStaleQueries).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * Ensures that if a store is manually deregistered from the GC, its cleanup
+   * method will not be called during the next sweep.
+   */
+  test('Verifies the GC does not call a store that deregisters before a sweep', async () => {
+    const mockStore = { clearStaleQueries: vi.fn() };
+    const deregister = registerStoreForGc(mockStore);
+    startApiStoreGarbageCollector({ intervalMs: 100 });
+
+    deregister();
+    await advanceTimersWithFlush(150);
+
+    expect(mockStore.clearStaleQueries).not.toHaveBeenCalled();
+  });
+
+  describe('Global GC Utilities (start/stop)', () => {
+    /**
+     * Validates that the global GC start/stop utilities are idempotent and clean
+     * up timers correctly. This is critical for environments with Hot Module
+     * Replacement (HMR) to prevent multiple intervals from running.
+     */
+    test('Verifies the global start/stop utilities are idempotent and clean up correctly', () => {
+      const g = globalThis as any;
+      const gcSymbol = Symbol.for('__API_STORE_GC_INTERVAL__');
+
+      // ASSERT: Initial state is clean, thanks to afterEach cleanup.
+      expect(vi.getTimerCount()).toBe(0);
+      expect(g[gcSymbol]).toBeUndefined();
+
+      // Start once, expect one timer.
+      startApiStoreGarbageCollector({ intervalMs: 100 });
+      expect(vi.getTimerCount()).toBe(1);
+      const firstIntervalId = g[gcSymbol];
+      expect(firstIntervalId).toBeDefined();
+
+      // Start again, expect no change.
+      startApiStoreGarbageCollector({ intervalMs: 100 });
+      expect(vi.getTimerCount()).toBe(1);
+      expect(g[gcSymbol]).toBe(firstIntervalId);
+
+      // Stop multiple times, should not throw and should result in a clean state.
+      stopApiStoreGarbageCollector();
+      stopApiStoreGarbageCollector();
+      expect(vi.getTimerCount()).toBe(0);
+      expect(g[gcSymbol]).toBeUndefined();
+    });
   });
 });
