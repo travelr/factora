@@ -16,7 +16,7 @@ import { act, cleanup, render, screen } from '@testing-library/react';
 import { type Mock, vi } from 'vitest';
 import type { StoreApi, UseBoundStore } from 'zustand';
 
-import { DataConsumer } from '@test-helper/api-store.test-components';
+import { DataConsumer } from '@test-helper/test-components';
 import { flushPromises, waitFor } from './async-helpers';
 import {
   createNonRetryableError,

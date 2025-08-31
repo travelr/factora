@@ -6,8 +6,8 @@
  * ensuring the core is correctly decoupled and that its dependencies are being
  * used as intended.
  */
-import { DataConsumer } from '@test-helper/api-store.test-components';
-import { createTestableApiStore } from '@test-helper/api-store.test-helpers';
+import { DataConsumer } from '@test-helper/test-components';
+import { createTestableApiStore } from '@test-helper/test-helpers';
 import { act, render, screen } from '@testing-library/react';
 import type { FactoraLogger } from '@/types/dependencies';
 import { afterEach, describe, expect, test, vi } from 'vitest';
