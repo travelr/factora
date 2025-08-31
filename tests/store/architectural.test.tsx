@@ -7,14 +7,29 @@
  * used as intended.
  */
 import { DataConsumer } from '@test-helper/test-components';
-import { createTestableApiStore } from '@test-helper/test-helpers';
+import { createTestableApiStore, mockLogger } from '@test-helper/test-helpers';
 import { act, render, screen } from '@testing-library/react';
-import type { FactoraLogger } from '@/types/dependencies';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { flushPromises } from '@test-helper/async-helpers';
+import { createApiFactoryPure } from '@core/index';
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+const simpleErrorMapper = (error: unknown) => ({
+  message: error instanceof Error ? error.message : 'Test error',
+  retryable: false,
+});
+
+// Create the base factory with a simple error mapper for most tests.
+const baseFactory = createApiFactoryPure({
+  errorMapper: simpleErrorMapper,
+  logger: mockLogger,
 });
 
 describe('Architectural Contract Tests', () => {
@@ -62,15 +77,6 @@ describe('Architectural Contract Tests', () => {
    * state to the component to prevent a crash.
    */
   test('Verifies hook returns stable error state and does not crash when getQueryKey fails', () => {
-    const mockLogger = {
-      info: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn(),
-      debug: vi.fn(),
-      getLevel: () => 0,
-      levels: { DEBUG: 1 },
-    } as FactoraLogger;
-
     // Create a store with an invalid `apiPathKey` to trigger an internal error.
     const { useApiQuery } = createTestableApiStore(
       '', // Invalid apiPathKey
@@ -93,6 +99,74 @@ describe('Architectural Contract Tests', () => {
     expect(mockLogger.error).toHaveBeenCalledWith(
       expect.stringContaining('Failed to generate a valid query key'),
       expect.any(Object),
+    );
+  });
+
+  test('Verifies hook handles fetcher promise rejections and logs them', async () => {
+    const asyncError = new Error('Async error');
+    const rejectingFetcher = () => Promise.reject(asyncError);
+
+    // Create the hook using the base factory.
+    const useApiQuery = baseFactory('/test', rejectingFetcher, {
+      retryAttempts: 1,
+    });
+
+    render(<DataConsumer useApiQuery={useApiQuery} />);
+    await act(flushPromises);
+
+    // Assert that the UI correctly displays the error from the store's state.
+    expect(screen.getByTestId('error')).toHaveTextContent('Async error');
+
+    // The library DOES log standard fetch errors. This assertion is now correct.
+    expect(mockLogger.error).toHaveBeenCalledTimes(1);
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      expect.stringContaining('Fetch failed for query'),
+      // The payload is the ApiError object produced by the mapper.
+      expect.objectContaining({
+        error: { message: 'Async error', retryable: false },
+      }),
+    );
+  });
+
+  /**
+   * This test is critical for the DI contract. It ensures that if an injected
+   * dependency (like the errorMapper) fails, the core catches the failure,
+   * logs it using the injected logger, and displays a fallback error.
+   */
+  test('Verifies injected logger is called for internal dependency errors', async () => {
+    const internalMapperError = new Error('Error mapper crashed!');
+    const faultyErrorMapper = () => {
+      throw internalMapperError;
+    };
+
+    const rejectingFetcher = () =>
+      Promise.reject(new Error('Original fetcher error'));
+
+    // Create a new factory specifically with the faulty error mapper.
+    const faultyFactory = createApiFactoryPure({
+      errorMapper: faultyErrorMapper,
+      logger: mockLogger,
+    });
+
+    const useApiQuery = faultyFactory('/test', rejectingFetcher, {
+      retryAttempts: 1,
+    });
+
+    render(<DataConsumer useApiQuery={useApiQuery} />);
+    await act(flushPromises);
+
+    // The logger is called with the same consistent message format.
+    expect(mockLogger.error).toHaveBeenCalledTimes(1);
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      expect.stringContaining('Fetch failed for query'),
+      // The payload is the raw error thrown by the dependency that crashed.
+      expect.objectContaining({ error: internalMapperError }),
+    );
+
+    // The UI should display the error from the dependency that crashed,
+    // as that is the most recent and relevant error in the chain.
+    expect(screen.getByTestId('error')).toHaveTextContent(
+      'Error mapper crashed!',
     );
   });
 });

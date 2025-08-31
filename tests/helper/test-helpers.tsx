@@ -63,6 +63,15 @@ const mockErrorMapper = (
   };
 };
 
+export const mockLogger: FactoraLogger = {
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+  getLevel: () => 0,
+  levels: { DEBUG: 1 },
+};
+
 /**
  * Creates a testable instance of the API store and its hook, providing a rich
  * set of helpers for robust testing.
@@ -80,15 +89,6 @@ export function createTestableApiStore<T>(
     dependencyOverrides?: Partial<FactoraDependencies<T>>;
   } = {},
 ) {
-  const mockLogger: FactoraLogger = {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-    getLevel: () => 0,
-    levels: { DEBUG: 1 },
-  };
-
   const baseDependencies: FactoraDependencies<T> = {
     fetcher: fetchFn,
     errorMapper: mockErrorMapper,
