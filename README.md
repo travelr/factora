@@ -19,7 +19,7 @@
 
 ### The Factory Pattern: A Centralized Data Layer
 
-`factora` follows a simple principle: centralize data-fetching logic to keep it consistent and reusable. The `createApiStore` factory lets you define each data source once and use the resulting hooks everywhere.
+`factora` follows a simple principle: centralize data-fetching logic to keep it consistent and reusable. The factory functions let you define each data source once and use the resulting hooks everywhere.
 
 This provides immediate benefits for teams:
 
@@ -30,7 +30,7 @@ This provides immediate benefits for teams:
 This approach naturally encourages a clean separation of concerns that aligns with principles like Domain-Driven Design (DDD). You can structure your application into distinct layers:
 
 - **Infrastructure Layer:** The `factora` hooks you create become your reusable, application-wide "repositories." They handle the mechanics of data fetching.
-- **Business Layer:** You can create your own custom hooks that contain your business logic. They orchestrate calls to the infrastructure hooks to compose data perfect aligned to your UI components.
+- **Business Layer:** You can create your own custom hooks that contain your business logic. They orchestrate calls to the infrastructure hooks to compose data perfectly aligned to your UI components.
 - **Presentation Layer:** Your React components become the clean, declarative presentation layer.
 
 This separation makes your components simpler, your business logic more explicit and testable, and your data-fetching consistent by default.
@@ -40,20 +40,60 @@ This separation makes your components simpler, your business logic more explicit
 ### Installation
 
 ```bash
-npm install factora
+pnpm add factora
 ```
 
-### Peer Dependencies
+#### Peer Dependencies
 
-factora requires React and Zustand to be installed in your project:
+`factora` requires [React](https://github.com/facebook/react) and [Zustand](https://github.com/pmndrs/zustand) to be installed in your project:
 
 ```bash
-npm install react zustand
+pnpm add react zustand
+```
+
+#### Optional Dependencies for the Default Setup
+
+For the simplest, out-of-the-box experience with `createApiStore`, you'll need [Axios](https://github.com/axios/axios) and [Loglevel](https://github.com/pimterry/loglevel).
+
+```bash
+pnpm add axios loglevel
+```
+
+If you do not install these, you must use the **Pure Factory Pattern** described below.
+
+---
+
+### Global Services Setup
+
+For features like automatic garbage collection and refetch-on-focus to work, you need to initialize `factora`'s global services once in your application's root component (e.g., `App.tsx`).
+
+```typescript
+// src/App.tsx
+import React, { useEffect } from 'react';
+import {
+  initializeApiRegistry,
+  startApiStoreGarbageCollector,
+  stopApiStoreGarbageCollector,
+} from 'factora';
+import { loglevelAdapter } from 'factora/adapter/loglevel';
+
+// Inject the logger into Factora's global registry
+initializeApiRegistry({ logger: loglevelAdapter });
+
+function App() {
+  useEffect(() => {
+    // Start the Garbage Collector, providing it with a logger (here loglevel)
+    startApiStoreGarbageCollector({ logger: loglevelAdapter });
+    return () => stopApiStoreGarbageCollector();
+  }, []);
+
+  // ... rest of your application
+}
 ```
 
 ---
 
-### The Core Architecture
+### Core Features
 
 `factora` provides out-of-the-box solutions to difficult async problems.
 
@@ -70,10 +110,11 @@ C --> E[usePostStore Hook];
 | **Request Deduplication**          | If 10 components call `useUserStore({ userId: 3 })` at once, only **one** network request runs.                                      |
 | **Configurable Caching (TTL)**     | Define a `cacheTTL` (ms). Data within its TTL is served instantly from cache, skipping the network.                                  |
 | **Automatic Retries**              | Configure `retryAttempts` and `retryDelay`. Failed requests retry automatically with exponential backoff.                            |
-| **Race Condition Prevention**      | An internal token system ensures slower responses never overwrite newer ones.                                                        |
 | **Automatic Garbage Collection**   | The store tracks subscribers. Once none remain, the cache entry clears after a grace period.                                         |
 | **Automatic Refetching (Polling)** | Set `refetchIntervalMinutes` to refresh data periodically, keeping your UI up to date.                                               |
 | **Manual Actions**                 | The hooks return stable `refetch()` and `clear()` methods, giving you control to refresh or clear a specific query’s cache manually. |
+
+The foundation for avoiding race conditions is the concept of `inFlightPromise`. It will act as a unique "lock" to prevent duplicate requests and will make sure that slower responses never overwrite newer ones. See details of the implementation **[here](docs/api-store-factory.md)**.
 
 ---
 
@@ -82,6 +123,8 @@ C --> E[usePostStore Hook];
 `factora` is built for resilience in real-world apps and is covered by a comprehensive test suite.
 
 Tests cover everything from low-level utilities to full integration flows, including caching, retries, garbage collection, and complex race conditions.
+
+v8 shows a test coverage greater **90%**
 
 For more details:
 
@@ -96,10 +139,10 @@ Here’s a simple example of how to centralize hooks for a blog.
 
 #### Step 1: Create a Centralized API Fetcher (`blog-api.ts`)
 
-This file contains raw data-fetching logic specific to an endpoint
+This file contains raw data-fetching logic specific to an endpoint.
 
 ```ts
-// src/blog-api.ts.ts
+// src/api/blog-api.ts
 import axios, { type AbortSignal } from 'axios';
 
 // Define your data shapes
@@ -132,16 +175,15 @@ export const apiFetcher = async <T>(
 #### Step 2: Create Your Store Hooks (`blog-stores.ts`)
 
 This file is the single source of truth for your data layer.
-Create one data layer per API source
 
 ```ts
-// src/blog-stores.ts
+// src/stores/blog-stores.ts
 import { createApiStore } from 'factora';
-import { apiFetcher, type Post, type User } from './api';
+import { apiFetcher, type Post, type User } from '../api/blog-api';
 
 const defaultOptions = {
-cacheTTL: 5 _ 60 _ 1000, // 5 minutes
-retryAttempts: 2,
+  cacheTTL: 5 * 60 * 1000, // 5 minutes
+  retryAttempts: 2,
 };
 
 // Singleton hooks for each data type
@@ -164,16 +206,15 @@ export const useUserStore = createApiStore<User>(
 
 #### Step 3: Use the Hooks in Your Components
 
-Your UI components import the pre-configured hooks and remain clean, declarative, and decoupled from the fetching implementation.
+Your UI components import the pre-configured hooks and remain clean and declarative.
 
 ```tsx
 // src/components/PostDetails.tsx
-import { usePostStore, useUserStore } from '../blog-stores';
+import { usePostStore, useUserStore } from '../stores/blog-stores';
 
 function AuthorDetails({ userId }: { userId: number }) {
   // Only one netowrk request per userId, even if called multiple times (within TTL)
   const { data: author, isLoading } = useUserStore({ userId });
-
   if (isLoading) return <p>Loading author...</p>;
   return <p>By: {author?.name ?? 'Unknown'}</p>;
 }
@@ -196,19 +237,58 @@ function PostDetails({ postId }: { postId: string }) {
 }
 ```
 
-> **Best Practice: Separating Concerns with Domain Hooks**
->
-> The example above is simplified for clarity. In a larger application, this pattern truly shines when you create your own **custom "business logic" hooks** that compose multiple store hooks:
->
-> - **`factora` Stores (`usePostStore`)** handle the _infrastructure_ concern of data fetching.
-> - **Your Custom Hooks (`usePostWithAuthor`)** handle the _domain_ concern of business logic (e.g., orchestrating dependent queries).
-> - **Your Components** handle the _presentation_ concern and remain simple.
->
-> This separation makes your codebase more modular, scalable, and easier to test.
-
 ---
+
+### Advanced Usage: The Pure Factory Pattern
+
+`factora` is built on a dependency-injected pure core, allowing you to use it with any data-fetching client or logger. To do this, you use the `createApiFactoryPure` function from the `factora/pure` entry point, which requires you to provide all dependencies.
+
+This is ideal for projects that use the native `fetch` API or a different logging library like `pino`.
+
+#### Example with `fetch` and `pino`
+
+```typescript
+// src/api/api-factory-setup.ts
+import { createApiFactoryPure } from 'factora/pure';
+import type { FactoraLogger } from 'factora/pure';
+import pino from 'pino';
+
+// 1. Create your custom logger adapter
+const pinoLogger = pino();
+const pinoAdapter: FactoraLogger = {
+  info: (...args) => pinoLogger.info(args),
+  warn: (...args) => pinoLogger.warn(args),
+  error: (...args) => pinoLogger.error(args),
+  debug: (...args) => pinoLogger.debug(args),
+  getLevel: () => pinoLogger.levelVal,
+  levels: { DEBUG: 20 },
+};
+
+// 2. Create your custom error mapper for `fetch`
+const myErrorMapper = async (error: unknown, context) => {
+  const message = error instanceof Error ? error.message : 'Fetch error';
+  return { message, retryable: false, context };
+};
+
+// 3. Create your reusable factory
+const myAppApiFactory = createApiFactoryPure({
+  errorMapper: myErrorMapper,
+  logger: pinoAdapter,
+});
+
+// 4. Use the factory to create stores with your fetch-based fetcher
+const fetchBasedFetcher = async (endpoint, params, signal) => {
+  const url = new URL(endpoint, 'https://my-api.com');
+  url.search = new URLSearchParams(params).toString();
+  const res = await fetch(url, { signal });
+  if (!res.ok) throw new Error('Network response was not ok');
+  return res.json();
+};
+
+export const useProductStore = myAppApiFactory('/products', fetchBasedFetcher);
+```
 
 ### Contributing & License
 
-Contributions are welcome! Open an issue or submit a pull request.  
+Contributions are welcome! Open an issue or submit a pull request.
 This project is released under the [MIT license](https://github.com/travelr/factora/blob/main/LICENSE).
