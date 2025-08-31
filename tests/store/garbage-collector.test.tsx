@@ -17,11 +17,11 @@ import { subscriptionManager } from '@utils/subscription-registry';
 import React from 'react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-import { DataConsumer } from '@test-helper/api-store.test-components';
+import { DataConsumer } from '@test-helper/test-components';
 import {
   _test_clearGcRegistry,
   createTestableApiStore,
-} from '@test-helper/api-store.test-helpers';
+} from '@test-helper/test-helpers';
 import {
   flushPromises,
   advanceTimersWithFlush,

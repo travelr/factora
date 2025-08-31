@@ -11,7 +11,7 @@ import { act, render } from '@testing-library/react';
 
 import { flushPromises } from '@test-helper/async-helpers';
 
-import { DataConsumer } from '@test-helper/api-store.test-components';
+import { DataConsumer } from '@test-helper/test-components';
 
 // --- Mocks for External Libraries ---
 // These mocks are hoisted to the top and run before any imports.

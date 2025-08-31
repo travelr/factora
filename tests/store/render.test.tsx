@@ -2,11 +2,11 @@ import { act, cleanup, render, screen } from '@testing-library/react';
 import React from 'react';
 import { afterEach, describe, expect, type Mock, test, vi } from 'vitest';
 
-import { RenderTracker } from '@test-helper/api-store.test-components';
+import { RenderTracker } from '@test-helper/test-components';
 import {
   _test_clearGcRegistry,
   createTestableApiStore,
-} from '@test-helper/api-store.test-helpers';
+} from '@test-helper/test-helpers';
 import { flushPromises } from '@test-helper/async-helpers';
 import { ApiStoreOptions } from '@/types/store';
 
