@@ -41,38 +41,28 @@
   ],
   "exports": {
     ".": {
-      "import": {
-        "types": "./dist/types/index.d.ts",
-        "default": "./dist/index.mjs"
-      },
-      "require": {
-        "types": "./dist/types/index.d.ts",
-        "default": "./dist/index.js"
-      }
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    },
+    "./pure": {
+      "types": "./dist/types/pure.d.ts",
+      "import": "./dist/pure.mjs",
+      "require": "./dist/pure.js"
     },
     "./adapter/axios": {
-      "import": {
-        "types": "./dist/types/adapter/axios.d.ts",
-        "default": "./dist/adapter/axios.mjs"
-      },
-      "require": {
-        "types": "./dist/types/adapter/axios.d.ts",
-        "default": "./dist/adapter/axios.js"
-      }
+      "types": "./dist/types/adapter/axios.d.ts",
+      "import": "./dist/adapter/axios.mjs",
+      "require": "./dist/adapter/axios.js"
     },
     "./adapter/loglevel": {
-      "import": {
-        "types": "./dist/types/adapter/loglevel.d.ts",
-        "default": "./dist/adapter/loglevel.mjs"
-      },
-      "require": {
-        "types": "./dist/types/adapter/loglevel.d.ts",
-        "default": "./dist/adapter/loglevel.js"
-      }
+      "types": "./dist/types/adapter/loglevel.d.ts",
+      "import": "./dist/adapter/loglevel.mjs",
+      "require": "./dist/adapter/loglevel.js"
     }
   },
   "scripts": {
-    "build": "rollup -c --configPlugin typescript --bundleConfigAsCjs",
+    "build": "rollup -c --configPlugin typescript",
     "coverage": "vitest run --coverage",
     "format": "prettier . --write",
     "lint": "eslint . --fix",
@@ -93,44 +83,44 @@
     }
   },
   "devDependencies": {
-    "@eslint/js": "^9.34.0",
-    "@rollup/plugin-alias": "^5.1.1",
-    "@rollup/plugin-commonjs": "^28.0.6",
-    "@rollup/plugin-node-resolve": "^16.0.1",
+    "@eslint/js": "^9.39.1",
+    "@rollup/plugin-alias": "^6.0.0",
+    "@rollup/plugin-commonjs": "^29.0.0",
+    "@rollup/plugin-node-resolve": "^16.0.3",
     "@rollup/plugin-terser": "^0.4.4",
-    "@rollup/plugin-typescript": "^12.1.4",
-    "@testing-library/jest-dom": "^6.8.0",
+    "@rollup/plugin-typescript": "^12.3.0",
+    "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
-    "@types/node": "^24.3.0",
-    "@types/react": "^19.1.12",
-    "@typescript-eslint/parser": "^8.41.0",
-    "@vitest/coverage-v8": "^3.2.4",
-    "axios": "^1.11.0",
-    "eslint": "^9.34.0",
-    "eslint-plugin-array-func": "^5.0.2",
-    "eslint-plugin-check-file": "^3.3.0",
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.7",
+    "@typescript-eslint/parser": "^8.48.0",
+    "@vitest/coverage-v8": "^4.0.14",
+    "axios": "^1.13.2",
+    "eslint": "^9.39.1",
+    "eslint-plugin-array-func": "^5.1.0",
+    "eslint-plugin-check-file": "^3.3.1",
     "eslint-plugin-import": "^2.32.0",
     "eslint-plugin-prettier": "^5.5.4",
     "eslint-plugin-promise": "^7.2.1",
-    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-simple-import-sort": "^12.1.1",
-    "eslint-plugin-unused-imports": "^4.2.0",
+    "eslint-plugin-unused-imports": "^4.3.0",
     "eslint-plugin-vitest": "^0.5.4",
-    "globals": "^16.3.0",
+    "globals": "^16.5.0",
     "husky": "^9.1.7",
-    "jsdom": "^26.1.0",
-    "lint-staged": "^16.1.5",
+    "jsdom": "^27.2.0",
+    "lint-staged": "^16.2.7",
     "loglevel": "^1.9.2",
     "prettier": "^3.6.2",
-    "react": "^19.1.1",
-    "rollup": "^4.49.0",
+    "react": "^19.2.0",
+    "rollup": "^4.53.3",
     "rollup-plugin-delete": "^3.0.1",
-    "rollup-plugin-dts": "^6.2.3",
+    "rollup-plugin-dts": "^6.3.0",
     "rollup-plugin-peer-deps-external": "^2.2.4",
-    "typescript": "^5.9.2",
-    "typescript-eslint": "^8.41.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.48.0",
     "vite-tsconfig-paths": "^5.1.4",
-    "vitest": "^3.2.4",
+    "vitest": "^4.0.14",
     "zustand": "^5.0.8"
   },
   "lint-staged": {
@@ -138,6 +128,7 @@
     "*.{ts,tsx,js}": "eslint --fix"
   },
   "dependencies": {
+    "react-dom": "19.2.0",
     "tslib": "^2.8.1"
   }
 }
