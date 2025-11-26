@@ -1,50 +1,30 @@
 /**
  * @fileoverview Rollup configuration for building the Factora library.
- *
- * This configuration is designed to produce a professional-grade JavaScript library
- * with the following features:
- *
- * 1.  **Multi-Entry Points:** Creates separate, independent bundles for core
- *     library (`index`, `pure`) and each adapter (`adapter/axios`, etc.) to enable
- *     optimal tree-shaking.
- *
- * 2.  **Dual Module Formats (CJS & ESM):** Generates both CommonJS (.js) and
- *     ESM (.mjs) bundles for each entry point, ensuring compatibility across
- *     Node.js, Webpack, Vite, and other modern tooling.
- *
- * 3.  **Bundled Type Definitions:** Uses a two-step process to generate clean,
- *     bundled TypeScript declaration files (.d.ts) with proper directory structure.
- *
- * 4.  **Peer Dependency Handling:** Correctly treats peer dependencies (`react`,
- *     `zustand`, `axios`, `loglevel`) as external to prevent bundling issues.
- *
- * Why this works:
- * - Keeps your original, proven DTS approach with alias plugin
- * - Only fixes the del plugin import issue
- * - Preserves the working directory structure
- * - Maintains compatibility with --bundleConfigAsCjs
  */
 
-// --- Plugin Imports (CommonJS-compatible) ---
-const peerDepsExternal = require('rollup-plugin-peer-deps-external');
-const resolve = require('@rollup/plugin-node-resolve').default;
-const commonjs = require('@rollup/plugin-commonjs');
-const typescript = require('@rollup/plugin-typescript');
-const terser = require('@rollup/plugin-terser');
-// Fixed import for rollup-plugin-dts (must use default export)
-const dts =
-  require('rollup-plugin-dts').default || require('rollup-plugin-dts');
-// Fixed import for rollup-plugin-delete (CommonJS compatibility)
-const delPlugin = require('rollup-plugin-delete');
-const del =
-  typeof delPlugin === 'function' ? delPlugin : delPlugin.default || delPlugin;
-const alias = require('@rollup/plugin-alias');
-const path = require('path');
+// @ts-expect-error: Missing type definitions for this plugin
+import peerDepsExternal from 'rollup-plugin-peer-deps-external';
+import resolve from '@rollup/plugin-node-resolve';
+import commonjs from '@rollup/plugin-commonjs';
+import typescript from '@rollup/plugin-typescript';
+import terser from '@rollup/plugin-terser';
+import dts from 'rollup-plugin-dts';
+import del from 'rollup-plugin-delete';
+import alias from '@rollup/plugin-alias';
+import path from 'path';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
 
-const packageJson = require('./package.json');
+// --- ESM Compatibility Setup ---
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Read package.json manually
+const packageJson = JSON.parse(
+  readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'),
+);
 
 // --- Entry Point Strategy ---
-// Maps public API surface to source files. Must match "exports" in package.json.
 const entryPoints = {
   index: 'src/index.ts',
   pure: 'src/pure.ts',
@@ -53,6 +33,7 @@ const entryPoints = {
 };
 
 /**
+ * Use JSDoc for typing to avoid "import type" syntax errors
  * @type {import('rollup').RollupOptions[]}
  */
 const config = [
@@ -60,7 +41,7 @@ const config = [
   {
     input: entryPoints,
     output: [
-      // CommonJS output for Node.js and legacy bundlers
+      // CommonJS output
       {
         dir: 'dist',
         entryFileNames: '[name].js',
@@ -68,7 +49,7 @@ const config = [
         sourcemap: true,
         exports: 'named',
       },
-      // ESM output for modern tooling (Vite, Webpack 5+)
+      // ESM output
       {
         dir: 'dist',
         entryFileNames: '[name].mjs',
@@ -93,8 +74,9 @@ const config = [
       typescript({
         tsconfig: './tsconfig.json',
         declaration: true,
-        declarationDir: 'dist/types_temp', // Keep original approach
+        declarationDir: 'dist/types_temp',
         rootDir: 'src',
+        sourceMap: true,
         exclude: ['**/*.test.ts', '**/*.test.tsx', 'tests/**/*', 'dist/**/*'],
       }),
 
@@ -148,10 +130,12 @@ const config = [
 
       // Use default export for dts plugin (works with --bundleConfigAsCjs)
       dts(),
+
+      // Clean up the temp folder after the build is done
+      del({ targets: 'dist/types_temp', hook: 'buildEnd' }),
     ],
-    // Keep external dependencies consistent
     external: ['react', 'zustand', 'axios', 'loglevel'],
   },
 ];
 
-module.exports = config;
+export default config;
