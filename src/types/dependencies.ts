@@ -9,6 +9,7 @@ import type { ApiError, ErrorMapperContext } from './error';
  * This allows consumers to inject their own logging implementation.
  */
 export interface FactoraLogger {
+  trace: (...args: any[]) => void;
   info: (...args: any[]) => void;
   warn: (...args: any[]) => void;
   error: (...args: any[]) => void;

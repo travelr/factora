@@ -13,6 +13,7 @@ export const noop = (): void => {};
  * This is used to prevent runtime errors when a real logger has not yet been injected.
  */
 export const noopLogger: FactoraLogger = {
+  trace: noop,
   info: noop,
   warn: noop,
   error: noop,
