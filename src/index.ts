@@ -7,15 +7,17 @@ import { axiosErrorMapper } from '@adapter/axios';
 import { loglevelAdapter } from '@adapter/loglevel';
 import type { UseApiQueryHook } from '@core/api-store-factory';
 import { createApiFactoryPure } from '@core/index';
+import { loggerInstance } from './logger';
 
 import type { ApiStoreOptions } from '@/types/store';
 
 // Re-export all functions and types from the pure entry point for a consistent API.
 export * from './pure';
+export { setLogger, type Logger } from './logger';
 
 const baseFactory = createApiFactoryPure({
   errorMapper: axiosErrorMapper,
-  logger: loglevelAdapter,
+  logger: loggerInstance,
 });
 
 /**

@@ -5,7 +5,8 @@
  * It uses a Set to maintain strong references to the actions of singleton stores,
  * which is the correct memory model for stores intended to live for the app's lifetime.
  */
-import { noop, noopLogger } from '@utils/noop-logger';
+import { loggerInstance as logger, setLogger } from '../logger';
+import { noop } from '@utils/noop-logger';
 
 import type { FactoraLogger } from '@/types/dependencies';
 
@@ -17,9 +18,6 @@ export interface StoreActions {
   clearAllQueryStates: () => void;
 }
 
-// Default to the no-op logger to prevent errors if the registry is used before initialization.
-let logger: FactoraLogger = noopLogger;
-
 /**
  * Initializes the global API store registry with external dependencies.
  * This should be called once when the application starts.
@@ -28,7 +26,7 @@ let logger: FactoraLogger = noopLogger;
 export const initializeApiRegistry = (dependencies: {
   logger: FactoraLogger;
 }): void => {
-  logger = dependencies.logger;
+  setLogger(dependencies.logger);
 };
 
 // A Set is used to store the action objects, ensuring no duplicates.
@@ -115,7 +113,5 @@ export const _test_only_apiRegistry =
         getRegistrySize: (): number => allStoreActions.size,
         clearRegistry: (): void => allStoreActions.clear(),
         /** In tests, this allows injecting a mock logger after module import. */
-        setLogger: (testLogger: FactoraLogger) => {
-          logger = testLogger;
-        },
+        setLogger,
       };
