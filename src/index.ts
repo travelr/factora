@@ -4,18 +4,20 @@
  * This file provides a pre-configured factory that uses Axios and Loglevel by default.
  */
 import { axiosErrorMapper } from '@adapter/axios';
-import { loglevelAdapter } from '@adapter/loglevel';
 import type { UseApiQueryHook } from '@core/api-store-factory';
 import { createApiFactoryPure } from '@core/index';
 
 import type { ApiStoreOptions } from '@/types/store';
 
+import { loggerInstance } from './logger';
+
 // Re-export all functions and types from the pure entry point for a consistent API.
+export { type Logger, setLogger } from './logger';
 export * from './pure';
 
 const baseFactory = createApiFactoryPure({
   errorMapper: axiosErrorMapper,
-  logger: loglevelAdapter,
+  logger: loggerInstance,
 });
 
 /**
