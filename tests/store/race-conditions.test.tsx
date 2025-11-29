@@ -356,4 +356,44 @@ describe('API store race conditions and concurrency', () => {
     // The mock should NOT have been called a second time.
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
+
+  test('Verifies aborted in-flight promise REJECTS instead of resolving silently', async () => {
+    let firstSignal: AbortSignal | undefined;
+    let callCount = 0;
+
+    const mockFetch = vi.fn().mockImplementation((_, __, signal) => {
+      callCount++;
+      // Capture only the first request's signal
+      if (callCount === 1) {
+        firstSignal = signal;
+      }
+      return new Promise((_, reject) => {
+        signal.addEventListener('abort', () => reject(new Error('Aborted')));
+      });
+    });
+
+    const { getInternalStore, getQueryKey } = createTestableApiStore(
+      '/api/silent-abort',
+      mockFetch,
+      {},
+      { exposeInternal: true },
+    );
+    const key = getQueryKey('/api/silent-abort', {});
+    const store = getInternalStore().getState();
+
+    // 1. Start Request A
+    const promiseA = store.triggerFetch(key);
+
+    // 2. Force Request B (This aborts Request A)
+    // We catch B to prevent unhandled rejection warnings in the test log,
+    // as we don't care about B's outcome here.
+    store.triggerFetch(key, true).catch(() => {});
+
+    // 3. Assert on First Signal
+    // This confirms the abort actually happened on the network layer
+    expect(firstSignal?.aborted).toBe(true);
+
+    // 4. Assert on Promise Outcome: It SHOULD reject.
+    await expect(promiseA).rejects.toThrow('Aborted');
+  });
 });

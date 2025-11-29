@@ -221,7 +221,13 @@ export const createApiStoreCore = <T>(
 
           // If polling is enabled, schedule the next run AFTER a successful fetch.
           let newRefetchTimerId: ReturnType<typeof setTimeout> | undefined;
-          if (refetchIntervalMs > 0) {
+
+          // Only schedule the next poll if there are actually active subscribers.
+          // This breaks the "zombie" loop when all components have unmounted.
+          if (
+            refetchIntervalMs > 0 &&
+            subscriptionManager.hasSubscribers(key)
+          ) {
             newRefetchTimerId = setTimeout(
               () => triggerFetch(key, true),
               refetchIntervalMs,
@@ -269,7 +275,9 @@ export const createApiStoreCore = <T>(
             attempt >= retryAttempts ||
             !apiError.retryable
           ) {
-            return;
+            // This throws to the deferred promise, which is eventually caught
+            // by the hook's safety net: triggerFetch(...).catch(noop)
+            throw apiError;
           }
 
           // Otherwise compute delay and perform abort-aware sleep
@@ -395,17 +403,16 @@ export const createApiStoreCore = <T>(
         // Create new AbortController for this specific fetch attempt.
         const controller = new AbortController();
         // Deferred promise pattern to atomically claim the inFlight slot.
-        const { promise: fetchPromise, resolve: deferredResolve } =
-          defer<void>();
+        // Deferred promise pattern to atomically claim the inFlight slot.
+        const {
+          promise: fetchPromise,
+          resolve: deferredResolve,
+          reject: deferredReject,
+        } = defer<void>();
 
-        // Fix Race condition guard: unique token for this fetch cycle
-        // The root cause is triggerFetch attaching cleanup to the wrong promise
-        // (a promise that resolves too early) because executeFetchCycle either (A)
-        // returns/settles an outer promise before its internal retry delay work
-        // completes, or (B) uses a non-awaited setTimeout/then chain, so that
-        // the lifecycle appears “done” to triggerFetch even though the worker
-        // is still waiting to retry — this clears inFlightPromise while
-        // real work continues.
+        // Fix Race condition guard: unique token for this fetch cycle.
+        // This prevents a "stale worker" from an old, superseded request
+        // from incorrectly clearing the state of a newer, active request.
         const inFlightToken = Symbol(`inFlightToken-${key}`);
 
         // 1. ATOMIC SLOT CLAIM: Synchronously set the inFlightPromise in the store.
@@ -424,6 +431,16 @@ export const createApiStoreCore = <T>(
         //    The `.catch()` here is a safeguard for unexpected errors within the cycle itself.
 
         executeFetchCycle(key, controller, inFlightToken)
+          .catch((error) => {
+            // Reject the user's promise.
+            // If the error comes from our own "Retry delay aborted" or the fetcher's "Request aborted",
+            // we must reject the deferred promise so waiters (like Promise.all) know it failed.
+            deferredReject(error);
+
+            // Note: We do NOT log "unexpected error" here anymore because executeFetchCycle
+            // now explicitly re-throws known errors (aborts/retries exhausted) for us to catch.
+            // Logging is handled inside executeFetchCycle or the error mapper.
+          })
           .finally(() => {
             // The `inFlightToken` check.
             // This prevents a "stale worker" from an old, superseded request
@@ -653,18 +670,29 @@ export const createApiStoreCore = <T>(
    *  - The small delay (1500ms) tolerates rapid mount/unmount cycles (React Strict Mode or fast routing)
    *    while still removing genuinely idle stores reasonably quickly.
    */
-  let deregisterScheduled = false;
+  let deregisterTimer: ReturnType<typeof setTimeout> | null = null;
+
   const unsubWatcher = subscribeToQueryCount(useInternalStore, (count) => {
-    if (count === 0 && !deregisterScheduled) {
-      deregisterScheduled = true;
-      setTimeout(() => {
+    // 1. If the store becomes active, CANCEL any pending deregistration immediately.
+    //    This resets the idle timer, ensuring we don't deregister a store that is being used.
+    if (count > 0) {
+      if (deregisterTimer) {
+        clearTimeout(deregisterTimer);
+        deregisterTimer = null;
+      }
+      return;
+    }
+
+    // 2. If the store is empty and no timer is running, schedule one.
+    if (count === 0 && !deregisterTimer) {
+      deregisterTimer = setTimeout(() => {
+        // Double-check count is still 0 (redundant safety check)
         if (useInternalStore.getState().queryCount === 0) {
           logger.info(`[GC] Deregistering empty store: ${description}`);
           deregister();
           unsubWatcher();
-        } else {
-          deregisterScheduled = false;
         }
+        deregisterTimer = null;
       }, 1500);
     }
   });
@@ -683,30 +711,36 @@ export const createApiStoreCore = <T>(
   const useApiQuery: UseApiQueryHook<T> = (
     runtimeParams: Record<string, any> = {},
   ) => {
-    let key: string;
-    try {
-      // 1. Call the pure utility.
-      key = getQueryKey(apiPathKey, runtimeParams);
-    } catch (error) {
-      // 2. If it throws, the impure core CATCHES the error.
-      // 3. The core then uses its INJECTED logger to report the problem.
-      logger.error(
-        `[${description}] Failed to generate a valid query key. This often indicates a programming error where an invalid apiPathKey or params were passed to the hook.`,
-        {
-          apiPathKey,
-          runtimeParams,
-          error, // Include the original error for context
-        },
-      );
+    const keyResult = React.useMemo(() => {
+      try {
+        // Call the pure utility.
+        return {
+          key: getQueryKey(apiPathKey, runtimeParams),
+          err: null,
+        };
+      } catch (error) {
+        // Log the error immediately to maintain original behavior
+        logger.error(
+          `[${description}] Failed to generate a valid query key. This often indicates a programming error where an invalid apiPathKey or params were passed to the hook.`,
+          {
+            apiPathKey,
+            runtimeParams,
+            error,
+          },
+        );
+        return { key: null, err: error };
+      }
+    }, [apiPathKey, runtimeParams]); // Dependencies ensure we only re-run if params change
 
-      // 4. The hook must still return a valid, stable state to the component to prevent a crash.
+    // Handle the error case returned by the memo
+    if (keyResult.err || !keyResult.key) {
       return {
         data: null,
         loading: false,
         error: {
           message:
-            error instanceof Error
-              ? error.message
+            keyResult.err instanceof Error
+              ? keyResult.err.message
               : 'Failed to generate query key',
           retryable: false,
         },
@@ -715,6 +749,8 @@ export const createApiStoreCore = <T>(
         clear: noop,
       };
     }
+
+    const key = keyResult.key;
 
     // If we get here, the key is valid, and the rest of the hook can proceed as normal.
     const { triggerFetch, clearQueryState } = useInternalStore();
@@ -737,7 +773,10 @@ export const createApiStoreCore = <T>(
       // as early as possible, then trigger fetch. The fetch call uses the store's atomic slot
       // claim to deduplicate simultaneous fetch attempts.
       const subscriberId = subscriptionManager.subscribe(key);
-      triggerFetch(key, false);
+
+      // We catch the promise to prevent "Unhandled Rejection" warnings.
+      // The actual error handling happens reactively via the store state (s.queries[key].error).
+      triggerFetch(key, false).catch(noop);
 
       return () => {
         subscriptionManager.unsubscribe(key, subscriberId);
@@ -746,7 +785,9 @@ export const createApiStoreCore = <T>(
     }, [key, triggerFetch]);
 
     const refetch = React.useCallback(() => {
-      triggerFetch(key, true);
+      // Catch the rejection here too.
+      // The UI updates based on state changes, not this promise.
+      triggerFetch(key, true).catch(noop);
     }, [key, triggerFetch]);
 
     const clear = React.useCallback(() => {

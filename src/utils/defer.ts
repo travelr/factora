@@ -7,10 +7,18 @@
  */
 const defer = <T>() => {
   let resolveFn: (value: T | PromiseLike<T>) => void;
-  // eslint-disable-next-line promise/avoid-new -- This is a deliberate and necessary use of the Promise constructor for the deferred pattern.
-  const promise = new Promise<T>((resolve) => {
+  // Add rejectFn variable
+  let rejectFn: (reason?: any) => void;
+
+  // eslint-disable-next-line promise/avoid-new
+  const promise = new Promise<T>((resolve, reject) => {
     resolveFn = resolve;
+    // Capture reject function
+    rejectFn = reject;
   });
-  return { promise, resolve: resolveFn! };
+
+  // Return reject alongside resolve
+  return { promise, resolve: resolveFn!, reject: rejectFn! };
 };
+
 export default defer;
