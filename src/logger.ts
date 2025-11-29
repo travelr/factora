@@ -19,7 +19,8 @@ export const loggerInstance: Logger = {
   debug: (...args: any[]) => currentLogger.debug(...args),
   getLevel: () => currentLogger.getLevel(),
   get levels() {
-    return currentLogger.levels;
+    // If a user sets a logger that accidentally lacks 'levels', this prevents a crash.
+    return currentLogger?.levels || { DEBUG: 1 };
   },
 };
 

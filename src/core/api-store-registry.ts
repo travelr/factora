@@ -5,10 +5,11 @@
  * It uses a Set to maintain strong references to the actions of singleton stores,
  * which is the correct memory model for stores intended to live for the app's lifetime.
  */
-import { loggerInstance as logger, setLogger } from '../logger';
 import { noop } from '@utils/noop-logger';
 
 import type { FactoraLogger } from '@/types/dependencies';
+
+import { loggerInstance as logger, setLogger } from '../logger';
 
 /**
  * Defines the shape of the globally accessible actions for each store.
