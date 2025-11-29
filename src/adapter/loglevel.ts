@@ -13,6 +13,7 @@ import type { FactoraLogger } from '@/types/dependencies';
  * pure library core and the external logging implementation.
  */
 export const loglevelAdapter: FactoraLogger = {
+  trace: (...args: any[]) => log.trace(...args),
   info: (...args: any[]) => log.info(...args),
   warn: (...args: any[]) => log.warn(...args),
   error: (...args: any[]) => log.error(...args),
