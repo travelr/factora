@@ -16,6 +16,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import { DataConsumer } from '@test-helper/test-components';
 import {
   _test_clearGcRegistry,
+  _test_getGcRegistrySize,
   createTestableApiStore,
 } from '@test-helper/test-helpers';
 import {
@@ -417,5 +418,79 @@ describe('API store GC + subscription registry', () => {
       expect(vi.getTimerCount()).toBe(0);
       expect(g[gcSymbol]).toBeUndefined();
     });
+  });
+
+  test('Verifies polling stops and query is GCed when subscribers unmount (Zombie Polling Fix)', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ value: 'polled' });
+    const { useApiQuery, getInternalStore, getQueryKey, clearStaleQueries } =
+      createTestableApiStore(
+        '/api/zombie-poll',
+        mockFetch,
+        {
+          refetchIntervalMinutes: 0.001, // ~60ms polling interval
+          gcGracePeriod: 100, // 100ms grace period
+        },
+        { exposeInternal: true },
+      );
+
+    const key = getQueryKey('/api/zombie-poll', {});
+    const internalStore = getInternalStore();
+
+    // 1. Mount: This initiates the first fetch and starts the polling timer.
+    const { unmount } = render(<DataConsumer useApiQuery={useApiQuery} />);
+    await act(flushPromises);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    // 2. Unmount: The subscriber count drops to 0.
+    // Ideally, this should signal the store that polling is no longer needed.
+    unmount();
+
+    // 3. Wait: Advance time past both the polling interval and the GC grace period.
+    // In the buggy state, the polling timer keeps firing and re-scheduling itself here.
+    await advanceTimersWithFlush(200);
+
+    // 4. GC Sweep: Attempt to clean up stale queries.
+    act(() => clearStaleQueries());
+
+    // 5. Assert: The query should be completely removed from the store.
+    expect(internalStore.getState().queries[key]).toBeUndefined();
+  });
+
+  test('Verifies deregistration timer is reset on activity (Deregistration Race Fix)', async () => {
+    // 1. Setup a store
+    const mockFetch = vi.fn().mockResolvedValue({ value: 'data' });
+    const { useApiQuery } = createTestableApiStore(
+      '/api/race-deregister',
+      mockFetch,
+    );
+    const Consumer = createSubscriptionComponent(useApiQuery);
+
+    // Initial state: Registered
+    const { unmount: unmount1 } = render(<Consumer />);
+    await act(flushPromises);
+    // Confirm it's tracked by GC
+    expect(_test_getGcRegistrySize()).toBe(1);
+
+    // 2. Trigger first idle (Starts 1500ms internal timer)
+    unmount1();
+
+    // 3. Wait 500ms (1000ms remaining on first timer)
+    await advanceTimersWithFlush(500);
+
+    // 4. Interruption: Become active again, then idle again immediately.
+    // IN A BUGGY STORE: This does NOT cancel the old timer.
+    // IN A FIXED STORE: This cancels the old timer and starts a new 1500ms timer.
+    const { unmount: unmount2 } = render(<Consumer />);
+    await act(flushPromises);
+    unmount2();
+
+    // 5. Wait 1100ms.
+    // Total time since first idle: 1600ms (Old timer would have fired).
+    // Time since second idle: 1100ms (New timer should NOT have fired).
+    await advanceTimersWithFlush(1100);
+
+    // 6. Assert
+    // The store is still waiting for the second timer
+    expect(_test_getGcRegistrySize()).toBe(1);
   });
 });
