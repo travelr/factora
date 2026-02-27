@@ -2,7 +2,11 @@ name: Publish to npm
 
 on:
   release:
-    types: [created] # Runs when a new GitHub Release is created
+    types: [created]
+
+permissions:
+  contents: read
+  id-token: write # Required for npm Trusted Publishing (OIDC)
 
 jobs:
   publish:
@@ -12,10 +16,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js with pnpm
+      - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10 # Adjust if you use a different pnpm version
+          version: 10
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -37,12 +41,10 @@ jobs:
           TAG_NAME="${GITHUB_REF#refs/tags/}"
           PKG_VERSION="v$(node -p "require('./package.json').version")"
           if [ "$TAG_NAME" != "$PKG_VERSION" ]; then
-            echo "❌ Tag ($TAG_NAME) does not match package.json version ($PKG_VERSION)"
+            echo "Tag ($TAG_NAME) does not match package.json version ($PKG_VERSION)"
             exit 1
           fi
-          echo "✅ Tag and package.json version match: $TAG_NAME"
+          echo "Tag and package.json version match: $TAG_NAME"
 
       - name: Publish to npm
         run: pnpm publish --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
