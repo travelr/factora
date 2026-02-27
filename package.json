@@ -71,8 +71,8 @@
   "peerDependencies": {
     "axios": "^1.0.0",
     "loglevel": "^1.8.0",
-    "react": "^18.0.0",
-    "zustand": "^4.0.0"
+    "react": "^19.0.0",
+    "zustand": "^5.0.0"
   },
   "peerDependenciesMeta": {
     "axios": {
