@@ -47,4 +47,4 @@ jobs:
           echo "Tag and package.json version match: $TAG_NAME"
 
       - name: Publish to npm
-        run: pnpm publish --access public --no-git-checks
+        run: pnpm publish --access public --no-git-checks --provenance
