@@ -36,6 +36,7 @@ vi.mock('loglevel', () => ({
     warn: vi.fn(),
     error: mockLoglevelError,
     debug: vi.fn(),
+    trace: vi.fn(),
     getLevel: () => 0,
     levels: { DEBUG: 1 },
   },
@@ -62,6 +63,7 @@ describe('Library Entry Point Integration Tests', () => {
       info: vi.fn(),
       warn: vi.fn(),
       debug: vi.fn(),
+      trace: vi.fn(),
       getLevel: () => 0,
       levels: { DEBUG: 1 },
     };

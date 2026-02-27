@@ -13,6 +13,11 @@ import vitestPlugin from 'eslint-plugin-vitest';
 import globals from 'globals';
 
 export default [
+  // --- Global Ignores ---
+  {
+    ignores: ['dist/', 'node_modules/'],
+  },
+
   // Base recommended rules
   eslint.configs.recommended,
   arrayFunc.configs.recommended,
