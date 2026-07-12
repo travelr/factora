@@ -2,18 +2,13 @@
   "editor.quickSuggestions": {
     "strings": true
   },
-  "editor.codeActionsOnSave": {
-    "source.fixAll.eslint": "always"
-  },
-  "eslint.validate": [
-    "javascript",
-    "javascriptreact",
-    "typescript",
-    "typescriptreact"
-  ],
-  "prettier.requireConfig": true,
+  "editor.defaultFormatter": "oxc.oxc-vscode",
   "editor.formatOnSave": true,
-  "eslint.options": {
-    "overrideConfigFile": "eslint.config.mjs"
-  }
+  "editor.formatOnSaveMode": "file",
+  "editor.codeActionsOnSave": {
+    "source.format.oxc": "always"
+  },
+  "oxc.requireConfig": true,
+  "prettier.requireConfig": true,
+  "prettier.useEditorConfig": true
 }

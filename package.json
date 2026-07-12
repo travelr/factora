@@ -33,39 +33,62 @@
     "server-state",
     "zustand"
   ],
-  "main": "./dist/index.js",
+  "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
-  "types": "./dist/types/index.d.ts",
+  "types": "./dist/index.d.mts",
   "files": [
     "dist"
   ],
   "exports": {
     ".": {
-      "types": "./dist/types/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.js"
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./pure": {
-      "types": "./dist/types/pure.d.ts",
-      "import": "./dist/pure.mjs",
-      "require": "./dist/pure.js"
+      "import": {
+        "types": "./dist/pure.d.mts",
+        "default": "./dist/pure.mjs"
+      },
+      "require": {
+        "types": "./dist/pure.d.cts",
+        "default": "./dist/pure.cjs"
+      }
     },
     "./adapter/axios": {
-      "types": "./dist/types/adapter/axios.d.ts",
-      "import": "./dist/adapter/axios.mjs",
-      "require": "./dist/adapter/axios.js"
+      "import": {
+        "types": "./dist/adapter/axios.d.mts",
+        "default": "./dist/adapter/axios.mjs"
+      },
+      "require": {
+        "types": "./dist/adapter/axios.d.cts",
+        "default": "./dist/adapter/axios.cjs"
+      }
     },
     "./adapter/loglevel": {
-      "types": "./dist/types/adapter/loglevel.d.ts",
-      "import": "./dist/adapter/loglevel.mjs",
-      "require": "./dist/adapter/loglevel.js"
+      "import": {
+        "types": "./dist/adapter/loglevel.d.mts",
+        "default": "./dist/adapter/loglevel.mjs"
+      },
+      "require": {
+        "types": "./dist/adapter/loglevel.d.cts",
+        "default": "./dist/adapter/loglevel.cjs"
+      }
     }
   },
   "scripts": {
-    "build": "rollup -c --configPlugin typescript",
+    "build": "tsdown",
     "coverage": "vitest run --coverage",
     "format": "prettier . --write",
-    "lint": "eslint . --fix",
+    "format:check": "prettier . --check",
+    "lint": "oxlint --type-aware --deny-warnings .",
+    "lint:fix": "oxlint --type-aware --fix .",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
     "test": "vitest --config vitest.config.ts"
   },
   "peerDependencies": {
@@ -83,52 +106,33 @@
     }
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.1",
-    "@rollup/plugin-alias": "^6.0.0",
-    "@rollup/plugin-commonjs": "^29.0.0",
-    "@rollup/plugin-node-resolve": "^16.0.3",
-    "@rollup/plugin-terser": "^0.4.4",
-    "@rollup/plugin-typescript": "^12.3.0",
+    "@arethetypeswrong/cli": "^0.18.4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
-    "@types/node": "^25.3.2",
-    "@types/react": "^19.2.14",
-    "@typescript-eslint/parser": "^8.56.1",
-    "@vitest/coverage-v8": "^4.0.18",
-    "axios": "^1.13.5",
-    "eslint": "^9.39.1",
-    "eslint-plugin-array-func": "^5.1.0",
-    "eslint-plugin-check-file": "^3.3.1",
-    "eslint-plugin-import": "^2.32.0",
-    "eslint-plugin-prettier": "^5.5.5",
-    "eslint-plugin-promise": "^7.2.1",
-    "eslint-plugin-react-hooks": "^7.0.1",
-    "eslint-plugin-simple-import-sort": "^12.1.1",
-    "eslint-plugin-unused-imports": "^4.4.1",
-    "eslint-plugin-vitest": "^0.5.4",
-    "globals": "^17.3.0",
+    "@types/node": "^26.1.1",
+    "@types/react": "^19.2.17",
+    "@vitest/coverage-v8": "^4.1.10",
+    "axios": "^1.18.1",
     "husky": "^9.1.7",
-    "jsdom": "^28.1.0",
-    "lint-staged": "^16.2.7",
+    "jsdom": "^29.1.1",
+    "lint-staged": "^17.0.8",
     "loglevel": "^1.9.2",
-    "prettier": "^3.8.1",
-    "react": "^19.2.4",
-    "rollup": "^4.59.0",
-    "rollup-plugin-delete": "^3.0.2",
-    "rollup-plugin-dts": "^6.3.0",
-    "rollup-plugin-peer-deps-external": "^2.2.4",
-    "typescript": "^5.9.3",
-    "typescript-eslint": "^8.56.1",
-    "vite-tsconfig-paths": "^6.1.1",
-    "vitest": "^4.0.18",
-    "zustand": "^5.0.11"
+    "oxlint": "^1.73.0",
+    "oxlint-tsgolint": "^0.24.0",
+    "prettier": "^3.9.5",
+    "publint": "^0.3.21",
+    "react": "^19.2.7",
+    "tsdown": "^0.22.3",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10",
+    "zustand": "^5.0.14"
   },
   "lint-staged": {
     "*.{ts,tsx,js,json,md}": "prettier --write",
-    "*.{ts,tsx,js}": "eslint --fix"
+    "*.{ts,tsx,js}": "oxlint --fix"
   },
   "dependencies": {
-    "react-dom": "19.2.4",
+    "react-dom": "19.2.7",
     "tslib": "^2.8.1"
   }
 }

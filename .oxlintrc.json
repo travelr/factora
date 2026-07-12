@@ -1,0 +1,75 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "eslint",
+    "typescript",
+    "oxc",
+    "import",
+    "promise",
+    "react",
+    "vitest"
+  ],
+  "categories": {
+    "correctness": "error"
+  },
+  "env": {
+    "browser": true,
+    "node": true
+  },
+  "ignorePatterns": ["dist/**", "node_modules/**"],
+  "options": {
+    "typeAware": true,
+    "reportUnusedDisableDirectives": "error"
+  },
+  "rules": {
+    "no-console": "error",
+    "no-underscore-dangle": [
+      "error",
+      {
+        "allow": ["__test_only_apiRegistry"]
+      }
+    ],
+    "no-unused-vars": "off",
+    "typescript/no-unused-vars": [
+      "error",
+      {
+        "args": "after-used",
+        "argsIgnorePattern": "^_",
+        "vars": "all",
+        "varsIgnorePattern": "^_"
+      }
+    ],
+    "import/first": "error",
+    "import/newline-after-import": "error",
+    "import/no-cycle": "error",
+    "import/no-duplicates": "error",
+    "promise/always-return": "error",
+    "promise/avoid-new": "error",
+    "promise/catch-or-return": "error"
+  },
+  "overrides": [
+    {
+      "files": [
+        "**/*.test.{ts,tsx}",
+        "**/*.spec.{ts,tsx}",
+        "tests/**/*.{ts,tsx}"
+      ],
+      "env": {
+        "browser": true,
+        "node": true,
+        "vitest": true
+      },
+      "rules": {
+        "no-underscore-dangle": "off",
+        "promise/avoid-new": "off",
+        "typescript/no-unused-vars": "off",
+        "vitest/no-conditional-expect": "off",
+        "vitest/no-commented-out-tests": "error",
+        "vitest/no-identical-title": "error",
+        "vitest/no-import-node-test": "error",
+        "vitest/require-mock-type-parameters": "off",
+        "vitest/no-focused-tests": "error"
+      }
+    }
+  ]
+}

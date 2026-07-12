@@ -1,11 +1,16 @@
-/* eslint-disable no-unused-vars */
 /**
  * A utility to create a deferred promise, allowing separation of promise
  * creation from its execution. This is essential for solving the primary
  * race condition in `triggerFetch` by allowing the request "slot" to be
  * claimed synchronously before any async work begins.
  */
-const defer = <T>() => {
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T | PromiseLike<T>) => void;
+  reject: (reason?: any) => void;
+}
+
+const defer = <T>(): Deferred<T> => {
   let resolveFn: (value: T | PromiseLike<T>) => void;
   // Add rejectFn variable
   let rejectFn: (reason?: any) => void;

@@ -1,4 +1,3 @@
-/* eslint-disable no-unused-vars */
 /**
  * @fileoverview The main, convenient entry point for the Factora library.
  * This file provides a pre-configured factory that uses Axios and Loglevel by default.

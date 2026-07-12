@@ -1,4 +1,3 @@
-/* eslint-disable no-unused-vars */
 /**
  * @fileoverview A factory for creating a robust, keyed API data store and React hook.
  *
@@ -135,7 +134,7 @@ export interface UseApiQueryHook<TData> {
  * completely removed (tree-shaken) from your production build.
  */
 // eslint-disable-next-line no-underscore-dangle
-export const __test_only_apiStores = new Map<string, any>();
+export const __test_only_apiStores: Map<string, any> = new Map();
 
 /**
  * Core factory that creates a keyed API store plus a hook that reads from it.
@@ -490,7 +489,7 @@ export const createApiStoreCore = <T>(
           )
             return;
           if (now - queryState.lastFetchTimestamp > cacheTTL) {
-            triggerFetch(key, true);
+            void triggerFetch(key, true);
           }
         });
       },
@@ -730,7 +729,7 @@ export const createApiStoreCore = <T>(
         );
         return { key: null, err: error };
       }
-    }, [apiPathKey, runtimeParams]); // Dependencies ensure we only re-run if params change
+    }, [runtimeParams]); // Re-run when the caller's parameters change.
 
     // Handle the error case returned by the memo
     if (keyResult.err || !keyResult.key) {

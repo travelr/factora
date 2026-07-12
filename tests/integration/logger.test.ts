@@ -4,8 +4,8 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 // For this test, we assume @adapter/loglevel exports a valid object.
 // If it's a 3rd party lib, we might mock it to control the "Default" state.
 import { loglevelAdapter } from '@adapter/loglevel';
-import { setLogger } from 'src';
-import { loggerInstance } from 'src/logger';
+import { setLogger } from '../../src';
+import { loggerInstance } from '../../src/logger';
 
 // Mock the default adapter to ensure we have a baseline spy
 vi.mock('@adapter/loglevel', () => ({

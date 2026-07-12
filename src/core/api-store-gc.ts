@@ -25,7 +25,7 @@ const gcStoreRegistry: Array<{ clearStaleQueries: () => void }> = [];
 
 export const registerStoreForGc = (store: {
   clearStaleQueries: () => void;
-}) => {
+}): (() => void) => {
   gcStoreRegistry.push(store);
   return () => {
     const idx = gcStoreRegistry.indexOf(store);
@@ -33,7 +33,9 @@ export const registerStoreForGc = (store: {
   };
 };
 
-const getRegisteredGcStores = () => gcStoreRegistry.slice();
+const getRegisteredGcStores = (): Array<{
+  clearStaleQueries: () => void;
+}> => gcStoreRegistry.slice();
 
 /**
  * Global symbol used to track the active GC interval.
@@ -54,7 +56,9 @@ const GC_GLOBAL_KEY = Symbol.for('__API_STORE_GC_INTERVAL__');
  *
  * @param options Configuration for the GC, primarily for testing.
  */
-export const startApiStoreGarbageCollector = (options: GcOptions = {}) => {
+export const startApiStoreGarbageCollector = (
+  options: GcOptions = {},
+): void => {
   if (typeof window === 'undefined') return;
 
   const g = globalThis as any;
@@ -88,7 +92,7 @@ export const startApiStoreGarbageCollector = (options: GcOptions = {}) => {
  */
 export const stopApiStoreGarbageCollector = (
   scheduler: GcScheduler = globalThis,
-) => {
+): void => {
   if (typeof window === 'undefined') return;
   const g = globalThis as any;
   const intervalId = g[GC_GLOBAL_KEY];
@@ -110,6 +114,6 @@ if (import.meta.hot) {
  * Clears all stores from the GC registry.
  * INTENDED FOR TEST USE ONLY to ensure a clean state between tests.
  */
-export function clearGcStoreRegistry() {
+export function clearGcStoreRegistry(): void {
   gcStoreRegistry.length = 0;
 }

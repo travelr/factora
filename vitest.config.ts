@@ -1,12 +1,19 @@
 /// <reference types="vitest" />
+import { fileURLToPath, URL } from 'node:url';
+
 import { defineConfig } from 'vitest/config';
-import tsconfigPaths from 'vite-tsconfig-paths';
 
 export default defineConfig({
-  plugins: [
-    // Point the plugin to your test-specific tsconfig
-    tsconfigPaths({ projects: ['./tsconfig.test.json'] }),
-  ],
+  resolve: {
+    alias: {
+      '@/types': fileURLToPath(new URL('./src/types', import.meta.url)),
+      '@adapter': fileURLToPath(new URL('./src/adapter', import.meta.url)),
+      '@core': fileURLToPath(new URL('./src/core', import.meta.url)),
+      '@test-helper': fileURLToPath(new URL('./tests/helper', import.meta.url)),
+      '@test-utils': fileURLToPath(new URL('./tests/utils', import.meta.url)),
+      '@utils': fileURLToPath(new URL('./src/utils', import.meta.url)),
+    },
+  },
   test: {
     globals: true,
     environment: 'jsdom',

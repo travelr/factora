@@ -107,12 +107,18 @@ export const clearAllApiStores = (): void => {
 // This new object is exported only for testing, providing a reliable way to access helpers.
 // This is the minimal change required to fix the test failures robustly.
 // eslint-disable-next-line no-underscore-dangle
-export const _test_only_apiRegistry =
+export const _test_only_apiRegistry:
+  | {
+      getRegistrySize: () => number;
+      clearRegistry: () => void;
+      setLogger: typeof setLogger;
+    }
+  | undefined =
   process.env.NODE_ENV === 'production'
     ? undefined
     : {
         getRegistrySize: (): number => allStoreActions.size,
         clearRegistry: (): void => allStoreActions.clear(),
         /** In tests, this allows injecting a mock logger after module import. */
-        setLogger,
+        setLogger: setLogger,
       };

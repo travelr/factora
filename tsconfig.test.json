@@ -1,6 +1,9 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
+    "isolatedDeclarations": false,
+    "noEmit": true,
+    "rootDir": ".",
     "types": ["vitest/globals", "vitest/importMeta", "node"],
     "paths": {
       "@core/*": ["./src/core/*"],

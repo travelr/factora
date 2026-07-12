@@ -30,6 +30,6 @@ export const loggerInstance: Logger = {
  *
  * @param newLogger The logger instance to use.
  */
-export const setLogger = (newLogger: Logger) => {
+export const setLogger = (newLogger: Logger): void => {
   currentLogger = newLogger;
 };
