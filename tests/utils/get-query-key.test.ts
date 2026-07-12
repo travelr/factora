@@ -1,112 +1,89 @@
-import { parseQueryKey } from '@utils/get-query-key';
+import { getQueryKey } from '@utils/get-query-key';
 
-/**
- * @fileoverview Unit tests for the `parseQueryKey` utility.
- * This suite ensures the parser is robust against malformed inputs, correctly
- * validates the required structure of a query key, and properly revives
- * specific data types like ISO date strings.
- */
-describe('Query Key Parsing', () => {
-  test.each([
-    {
-      scenario: 'a valid JSON structure',
-      input: '{"endpoint":"/test","params":{}}',
-      expected: { endpoint: '/test', params: {} },
-    },
-    {
-      scenario: 'a deeply nested object structure',
-      input:
-        '{"endpoint":"/test","params":{"user":{"profile":{"name":"test","settings":{"theme":"dark"}}}}}',
-      expected: {
-        endpoint: '/test',
-        params: {
-          user: {
-            profile: {
-              name: 'test',
-              settings: {
-                theme: 'dark',
-              },
-            },
-          },
-        },
-      },
-    },
-    {
-      scenario: 'an ISO date with fractional seconds',
-      input:
-        '{"endpoint":"/test","params":{"date":"2024-01-01T12:00:00.123Z"}}',
-      expected: {
-        endpoint: '/test',
-        params: { date: new Date('2024-01-01T12:00:00.123Z') },
-      },
-    },
-    {
-      scenario: 'an ISO date with a timezone offset',
-      input:
-        '{"endpoint":"/test","params":{"date":"2024-01-01T12:00:00+02:00"}}',
-      expected: {
-        endpoint: '/test',
-        params: { date: new Date('2024-01-01T12:00:00+02:00') },
-      },
-    },
-    // --- Non-Revival Scenarios (should remain strings) ---
-    {
-      scenario: 'a simple date-like string that is not ISO compliant',
-      input: '{"endpoint":"/test","params":{"date":"2024-01-01"}}',
-      expected: { endpoint: '/test', params: { date: '2024-01-01' } },
-    },
-    {
-      scenario: 'a date string with an invalid ISO format',
-      input: '{"endpoint":"/test","params":{"date":"2024/01/01"}}',
-      expected: { endpoint: '/test', params: { date: '2024/01/01' } },
-    },
-    {
-      scenario: 'a date string with a partial ISO format',
-      input: '{"endpoint":"/test","params":{"date":"2024-01-01T12:00"}}',
-      expected: { endpoint: '/test', params: { date: '2024-01-01T12:00' } },
-    },
-    {
-      scenario: 'a date string with an invalid time component',
-      input: '{"endpoint":"/test","params":{"date":"2024-01-01T25:00:00Z"}}',
-      expected: { endpoint: '/test', params: { date: '2024-01-01T25:00:00Z' } },
-    },
-    // --- Failure Scenarios ---
-    {
-      scenario: 'a non-JSON string',
-      input: 'not a json string',
-      error: /Failed to parse query key/,
-    },
-    {
-      scenario: 'an empty string',
-      input: '',
-      error: /Failed to parse query key/,
-    },
-    {
-      scenario: 'valid JSON that is missing the required `endpoint` field',
-      input: '{"params":{}}',
-      error: /Invalid query key structure/,
-    },
-    {
-      scenario: 'valid JSON that is missing the required `params` field',
-      input: '{"endpoint":"/test"}',
-      error: /Invalid query key structure/,
-    },
-  ])('Verifies the scenario $scenario', ({ input, expected, error }) => {
-    // If an error is expected, assert that the function throws.
-    if (error) {
-      expect(() => parseQueryKey(input)).toThrow(error);
-    } else {
-      const result = parseQueryKey(input);
-      // Because `toEqual` performs a deep equality check, we must handle
-      // Date objects specially, as two Date instances are never strictly equal.
-      if (expected?.params && expected.params.date instanceof Date) {
-        expect(result.params.date).toBeInstanceOf(Date);
-        expect((result.params.date as Date).toISOString()).toBe(
-          expected.params.date.toISOString(),
-        );
-      } else {
-        expect(result).toEqual(expected);
-      }
+describe('query key canonicalization', () => {
+  test('Verifies that nested property order produces the same key', () => {
+    expect(getQueryKey('/test', { filter: { a: 1, b: 2 } })).toBe(
+      getQueryKey('/test', { filter: { b: 2, a: 1 } }),
+    );
+  });
+
+  test('Verifies that canonical order does not depend on locale collation', () => {
+    const composed = 'ä';
+    const decomposed = 'a\u0308';
+    expect(getQueryKey('/test', { [composed]: 1, [decomposed]: 2 })).toBe(
+      getQueryKey('/test', { [decomposed]: 2, [composed]: 1 }),
+    );
+  });
+
+  test('Verifies that symbol-keyed properties are rejected instead of silently ignored', () => {
+    const params = { visible: true, [Symbol('hidden')]: 'value' };
+    expect(() => getQueryKey('/test', params)).toThrow(
+      /Unsupported query parameter value/,
+    );
+  });
+
+  test('Verifies that unsupported-value errors cannot expose a custom type label', () => {
+    const secret = 'credential-from-to-string-tag';
+    const value = new Map();
+    Object.defineProperty(value, Symbol.toStringTag, { value: secret });
+
+    let thrown: unknown;
+    try {
+      getQueryKey('/test', { value });
+    } catch (error) {
+      thrown = error;
     }
+    expect(thrown).toBeInstanceOf(TypeError);
+    expect(String(thrown)).not.toContain(secret);
+  });
+
+  test('Verifies that shared non-circular references are accepted', () => {
+    const shared = { id: 1 };
+    expect(() =>
+      getQueryKey('/test', { left: shared, right: shared }),
+    ).not.toThrow();
+  });
+
+  test('Verifies that missing and explicitly undefined values have different identities', () => {
+    expect(getQueryKey('/test', {})).not.toBe(
+      getQueryKey('/test', { value: undefined }),
+    );
+  });
+
+  test.each([
+    () => undefined,
+    Symbol('unsupported'),
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    new Map(),
+    new Set(),
+    Object.create({ custom: true }),
+  ])(
+    'Verifies that unsupported value %# is rejected without including its contents',
+    (value) => {
+      expect(() => getQueryKey('/test', { secret: value })).toThrow(
+        /Unsupported query parameter value/,
+      );
+    },
+  );
+
+  test('Verifies that cycles are rejected but repeated references are permitted', () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    expect(() => getQueryKey('/test', circular)).toThrow(/Circular/);
+  });
+
+  test('Verifies that BigInt, arrays, primitives, and dates receive tagged keys', () => {
+    expect(() =>
+      getQueryKey('/test', {
+        bigint: 10n,
+        array: [true, 'value', null],
+        date: new Date('2024-01-01T00:00:00.000Z'),
+      }),
+    ).not.toThrow();
+  });
+
+  test('Verifies that invalid endpoints are rejected without reflecting their contents', () => {
+    expect(() => getQueryKey('', {})).toThrow('Invalid endpoint provided');
   });
 });

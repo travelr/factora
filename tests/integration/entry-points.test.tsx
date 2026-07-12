@@ -112,12 +112,8 @@ describe('Library Entry Point Integration Tests', () => {
     expect(mockAxiosGet).toHaveBeenCalledTimes(1);
     expect(mockLoglevelError).toHaveBeenCalled();
     expect(mockLoglevelError).toHaveBeenCalledWith(
-      expect.stringContaining('Fetch failed for query'),
-      expect.objectContaining({
-        error: expect.objectContaining({
-          message: 'API Request: Network Error',
-        }),
-      }),
+      '[API Request] Request failed.',
+      { endpoint: '/api/main-test', errorCode: 'UNKNOWN', status: undefined },
     );
   });
 });

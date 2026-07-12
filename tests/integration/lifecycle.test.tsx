@@ -4,9 +4,7 @@
  * garbage collection to prevent long-term memory leaks.
  */
 
-import { _test_only_apiRegistry } from '@core/api-store-registry';
 import { act, cleanup, render, screen } from '@testing-library/react';
-import { subscriptionManager } from '@utils/subscription-registry';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import { DataConsumer } from '@test-helper/test-components';
@@ -26,27 +24,19 @@ afterEach(() => {
   // Isolate the integration tests from each other.
   cleanup();
   _test_clearGcRegistry();
-  _test_only_apiRegistry?.clearRegistry();
-  (subscriptionManager as any)._clearAll();
 });
 
 describe('API Store End-to-End Lifecycle', () => {
   /**
    * This is a high-level smoke test to verify the store's entire lifecycle,
-   * specifically its ability to self-deregister from all global registries
+   * specifically its ability to self-deregister from the global runtime
    * to prevent long-term memory leaks in a long-lived application.
    */
   test('Verifies stores and components correctly deregister from all global registries', async () => {
-    // ARRANGE: Get test-only helpers to inspect the global registry sizes.
-    const getActionRegistrySize = _test_only_apiRegistry!.getRegistrySize;
-    const getSubscriberRegistrySize = (subscriptionManager as any)
-      ._getRegistrySize;
     const gcGracePeriod = 50; // Use a short, explicit grace period for the test.
 
-    // Capture the initial state of all three registries.
+    // The unified runtime starts empty.
     expect(_test_getGcRegistrySize()).toBe(0);
-    expect(getActionRegistrySize()).toBe(0);
-    expect(getSubscriberRegistrySize()).toBe(0);
 
     // ACT 1: In a loop, create stores, render them briefly, and unmount them.
     for (let i = 0; i < 5; i++) {
@@ -61,8 +51,7 @@ describe('API Store End-to-End Lifecycle', () => {
       unmount();
     }
 
-    // ASSERT 1 (IMMEDIATE): The component-level subscriber registry should be empty.
-    expect(getSubscriberRegistrySize()).toBe(0);
+    // Each populated store has one runtime registration.
     expect(_test_getGcRegistrySize()).toBe(5);
 
     // ACT 2: Simulate time passing to make the cached data stale.
@@ -75,9 +64,8 @@ describe('API Store End-to-End Lifecycle', () => {
     // ACT 4: Wait for the store-level cleanup debounce period (1500ms).
     await advanceTimersWithFlush(2000);
 
-    // ASSERT 2 (DELAYED): The store-level registries should now be empty.
+    // The lifecycle debounce removes every now-empty store.
     expect(_test_getGcRegistrySize()).toBe(0);
-    expect(getActionRegistrySize()).toBe(0);
   });
 
   /**

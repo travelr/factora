@@ -3,14 +3,12 @@
  * management of the API store.
  */
 import '@testing-library/jest-dom';
-import { _test_only_apiRegistry } from '@core/api-store-registry';
 import { act, cleanup, render } from '@testing-library/react';
 import {
   registerStoreForGc,
   startApiStoreGarbageCollector,
   stopApiStoreGarbageCollector,
 } from '@core/api-store-gc';
-import { subscriptionManager } from '@utils/subscription-registry';
 import React from 'react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { DataConsumer } from '@test-helper/test-components';
@@ -18,6 +16,7 @@ import {
   _test_clearGcRegistry,
   _test_getGcRegistrySize,
   createTestableApiStore,
+  mockLogger,
 } from '@test-helper/test-helpers';
 import {
   flushPromises,
@@ -31,8 +30,6 @@ afterEach(() => {
   // Unmount components and clear all global registries.
   cleanup();
   _test_clearGcRegistry();
-  _test_only_apiRegistry?.clearRegistry();
-  (subscriptionManager as any)._clearAll();
 });
 
 /**
@@ -155,7 +152,11 @@ describe('API store GC + subscription registry', () => {
       internalStore.setState((s: { queries: { [x: string]: any } }) => ({
         queries: {
           ...s.queries,
-          [key]: { ...s.queries[key], lastFetchTimestamp: NaN },
+          [key]: {
+            ...s.queries[key],
+            lastFetchTimestamp: NaN,
+            lastSettledTimestamp: NaN,
+          },
         },
       }));
     });
@@ -173,7 +174,7 @@ describe('API store GC + subscription registry', () => {
    * Ensures that queries with an active refetchInterval are treated like background
    * services and are never garbage collected, even with no active subscribers.
    */
-  test('Verifies GC preserves data for a query with an active polling timer', async () => {
+  test('Verifies that a pending poll does not fetch after the final unmount', async () => {
     const mockFetch = vi.fn(async () => ({ data: 'polling data' }));
     const { useApiQuery, clearStaleQueries } = createTestableApiStore(
       '/api/v1/polling',
@@ -195,11 +196,10 @@ describe('API store GC + subscription registry', () => {
     act(() => clearStaleQueries());
 
     // ASSERT
-    // The query should NOT have been evicted. We can prove this by advancing time
-    // past the polling interval and checking if the poll triggers a second fetch.
+    // The pending callback rechecks subscriber state and must not fetch.
     expect(mockFetch).toHaveBeenCalledTimes(1); // No new fetch from GC.
     await advanceTimersWithFlush(150); // Let the 120ms poll timer fire.
-    expect(mockFetch).toHaveBeenCalledTimes(2); // The poll successfully triggered a new fetch.
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   /**
@@ -298,13 +298,10 @@ describe('API store GC + subscription registry', () => {
    */
   test('Verifies the hook handles React Strict Mode correctly', async () => {
     const mockFetch = vi.fn(async () => ({ value: 'strict data' }));
-    const { useApiQuery, getQueryKey } = createTestableApiStore(
-      '/api/strict',
-      mockFetch,
-    );
-    const key = getQueryKey('/api/strict', {});
+    const { useApiQuery, clearStaleQueries, getStoreState } =
+      createTestableApiStore('/api/strict', mockFetch, { gcGracePeriod: 50 });
 
-    render(
+    const mounted = render(
       <React.StrictMode>
         <DataConsumer useApiQuery={useApiQuery} />
       </React.StrictMode>,
@@ -314,14 +311,11 @@ describe('API store GC + subscription registry', () => {
     // 1. Verify that the store's deduplication prevented a second network request.
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
-    // 2. Verify the final subscriber count. This is a justified use of an internal
-    // test-only accessor because testing the ultimate outcome (correct GC behavior)
-    // would make the test much more complex and indirect. This surgically verifies
-    // that the subscribe -> unsubscribe -> subscribe cycle is handled correctly.
-    const subscriberCount = (subscriptionManager as any)._getSubscriberCount(
-      key,
-    );
-    expect(subscriberCount).toBe(1);
+    // The final Strict Mode subscription protects the entry from GC.
+    await advanceTimersWithFlush(51);
+    act(() => clearStaleQueries());
+    expect(getStoreState().queryCount).toBe(1);
+    mounted.unmount();
   });
 
   /**
@@ -330,11 +324,8 @@ describe('API store GC + subscription registry', () => {
    */
   test('Verifies rapid mount/unmount cycles do not cause memory leaks', async () => {
     const mockFetch = vi.fn(async () => ({ value: 'rapid data' }));
-    const { useApiQuery, getQueryKey } = createTestableApiStore(
-      '/api/rapid',
-      mockFetch,
-    );
-    const key = getQueryKey('/api/rapid', {});
+    const { useApiQuery, clearStaleQueries, getStoreState } =
+      createTestableApiStore('/api/rapid', mockFetch, { gcGracePeriod: 50 });
 
     // Simulate extremely rapid mount/unmount cycles.
     for (let i = 0; i < 10; i++) {
@@ -348,11 +339,10 @@ describe('API store GC + subscription registry', () => {
     // ASSERT: Only ONE fetch occurred, proving deduplication worked correctly.
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
-    // ASSERT: No subscriptions remain, proving no memory leaks.
-    const subscriberCount = (subscriptionManager as any)._getSubscriberCount(
-      key,
-    );
-    expect(subscriberCount).toBe(0);
+    // With no leaked subscriptions, the entry becomes GC-eligible.
+    await advanceTimersWithFlush(51);
+    act(() => clearStaleQueries());
+    expect(getStoreState().queryCount).toBe(0);
   });
 
   /**
@@ -394,30 +384,109 @@ describe('API store GC + subscription registry', () => {
      * Replacement (HMR) to prevent multiple intervals from running.
      */
     test('Verifies the global start/stop utilities are idempotent and clean up correctly', () => {
-      const g = globalThis as any;
-      const gcSymbol = Symbol.for('__API_STORE_GC_INTERVAL__');
-
       // ASSERT: Initial state is clean, thanks to afterEach cleanup.
       expect(vi.getTimerCount()).toBe(0);
-      expect(g[gcSymbol]).toBeUndefined();
 
       // Start once, expect one timer.
       startApiStoreGarbageCollector({ intervalMs: 100 });
       expect(vi.getTimerCount()).toBe(1);
-      const firstIntervalId = g[gcSymbol];
-      expect(firstIntervalId).toBeDefined();
 
       // Start again, expect no change.
       startApiStoreGarbageCollector({ intervalMs: 100 });
       expect(vi.getTimerCount()).toBe(1);
-      expect(g[gcSymbol]).toBe(firstIntervalId);
 
       // Stop multiple times, should not throw and should result in a clean state.
       stopApiStoreGarbageCollector();
       stopApiStoreGarbageCollector();
       expect(vi.getTimerCount()).toBe(0);
-      expect(g[gcSymbol]).toBeUndefined();
     });
+
+    test('Verifies that stopping uses the scheduler that created the interval', () => {
+      const intervalId = { id: 'custom' } as any;
+      const scheduler = {
+        setInterval: vi.fn(() => intervalId),
+        clearInterval: vi.fn(),
+      } as any;
+
+      startApiStoreGarbageCollector({ scheduler, intervalMs: 100 });
+      stopApiStoreGarbageCollector();
+
+      expect(scheduler.clearInterval).toHaveBeenCalledWith(intervalId);
+    });
+
+    test('Verifies that scheduler start failures are reported and remain restartable', () => {
+      const failingScheduler = {
+        setInterval: vi.fn(() => {
+          throw new Error('scheduler unavailable');
+        }),
+        clearInterval: vi.fn(),
+      } as any;
+      expect(() =>
+        startApiStoreGarbageCollector({
+          scheduler: failingScheduler,
+          intervalMs: 100,
+          logger: mockLogger,
+        }),
+      ).not.toThrow();
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        '[Factora runtime] Failed to start garbage collector.',
+        { message: 'scheduler unavailable' },
+      );
+
+      const workingScheduler = {
+        setInterval: vi.fn(() => 1),
+        clearInterval: vi.fn(),
+      } as any;
+      startApiStoreGarbageCollector({
+        scheduler: workingScheduler,
+        intervalMs: 100,
+        logger: mockLogger,
+      });
+      expect(workingScheduler.setInterval).toHaveBeenCalledOnce();
+      stopApiStoreGarbageCollector();
+    });
+
+    test('Verifies that scheduler stop failures are reported and permit a retry', () => {
+      const scheduler = {
+        setInterval: vi.fn(() => 1),
+        clearInterval: vi
+          .fn()
+          .mockImplementationOnce(() => {
+            throw new Error('scheduler cleanup failed');
+          })
+          .mockImplementationOnce(() => undefined),
+      } as any;
+      startApiStoreGarbageCollector({
+        scheduler,
+        intervalMs: 100,
+        logger: mockLogger,
+      });
+
+      expect(stopApiStoreGarbageCollector).not.toThrow();
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        '[Factora runtime] Failed to stop garbage collector.',
+        { message: 'scheduler cleanup failed' },
+      );
+      stopApiStoreGarbageCollector();
+      expect(scheduler.clearInterval).toHaveBeenCalledTimes(2);
+    });
+
+    test.each([Number.NaN, Number.POSITIVE_INFINITY, -1, 0])(
+      'Verifies that unsafe GC interval %p is normalized',
+      (intervalMs) => {
+        const scheduler = {
+          setInterval: vi.fn(() => 1),
+          clearInterval: vi.fn(),
+        } as any;
+
+        startApiStoreGarbageCollector({ scheduler, intervalMs });
+
+        expect(scheduler.setInterval).toHaveBeenCalledWith(
+          expect.any(Function),
+          120_000,
+        );
+      },
+    );
   });
 
   test('Verifies polling stops and query is GCed when subscribers unmount (Zombie Polling Fix)', async () => {

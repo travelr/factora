@@ -8,7 +8,7 @@
 
 ---
 
-### Key Benefits
+## Key Benefits
 
 - ⚡️ **Snappy UI with smart caching:** When returning to a page, freshly cached data (within its TTL) is shown instantly, often eliminating loading spinners.
 - 💪 **Resilient UI with automatic retries:** Transient network errors are retried automatically with an exponential backoff. So that temporary glitches don’t break your UI.
@@ -23,9 +23,9 @@
 
 This provides immediate benefits for teams:
 
-1.  **Consistency Guaranteed:** Every component relies on the same pre-configured hook, keeping caching and retry behavior identical across your entire application.
-2.  **Simpler Components:** UI code focuses purely on rendering state—not on the complex mechanics of how or when to fetch data.
-3.  **Easy Maintenance:** Change how an endpoint is fetched or cached in one place, and the whole app updates automatically.
+1. **Consistency Guaranteed:** Every component relies on the same pre-configured hook, keeping caching and retry behavior identical across your entire application.
+2. **Simpler Components:** UI code focuses purely on rendering state—not on the complex mechanics of how or when to fetch data.
+3. **Easy Maintenance:** Change how an endpoint is fetched or cached in one place, and the whole app updates automatically.
 
 This approach naturally encourages a clean separation of concerns that aligns with principles like Domain-Driven Design (DDD). You can structure your application into distinct layers:
 
@@ -60,6 +60,8 @@ pnpm add axios loglevel
 ```
 
 If you do not install these, you must use the **Pure Factory Pattern** described below.
+The `factora/pure` artifact has no runtime import of Axios or Loglevel; only
+React and Zustand are required peers.
 
 ---
 
@@ -84,7 +86,34 @@ C --> E[usePostStore Hook];
 | **Automatic Refetching (Polling)** | Set `refetchIntervalMinutes` to refresh data periodically, keeping your UI up to date.                                               |
 | **Manual Actions**                 | The hooks return stable `refetch()` and `clear()` methods, giving you control to refresh or clear a specific query’s cache manually. |
 
-The foundation for avoiding race conditions is the concept of `inFlightPromise`. It will act as a unique "lock" to prevent duplicate requests and will make sure that slower responses never overwrite newer ones. See details of the implementation **[here](docs/api-store-factory.md)**.
+Additional production-safety options are available without changing existing
+defaults:
+
+```ts
+const useReport = createApiStore('/reports', reportFetcher, {
+  requestTimeoutMs: 30_000, // disabled when omitted
+  shouldRetry: (error, attempt) => error.retryable === true && attempt < 3,
+});
+```
+
+The default query-key implementation supports primitives, `undefined`, BigInt,
+Dates, arrays, and plain objects. Functions, symbols, non-finite numbers,
+circular values, Maps, Sets, and custom class instances are rejected. Normalize
+specialized values to supported request parameters before calling the hook.
+
+Transient Axios network retries remain opt-in for compatibility:
+
+```ts
+import { createAxiosErrorMapper } from 'factora/adapter/axios';
+import { createApiFactoryPure } from 'factora/pure';
+
+const createStore = createApiFactoryPure({
+  logger: appLogger,
+  errorMapper: createAxiosErrorMapper({ retryNetworkErrors: true }),
+});
+```
+
+The foundation for avoiding race conditions is the concept of `inFlightPromise`. It will act as a unique "lock" to prevent duplicate requests and will make sure that slower responses never overwrite newer ones. See details of the implementation **[here in the docs](docs/api-store-factory.md)**.
 
 ---
 

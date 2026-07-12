@@ -1,4 +1,3 @@
-/* eslint-disable no-unused-vars */
 /**
  * @fileoverview A collection of utility functions for working with Zustand stores,
  * particularly for creating efficient, non-React subscriptions.
@@ -18,7 +17,10 @@ export function shallowEqual(a: any, b: any): boolean {
   if (aKeys.length !== bKeys.length) return false;
 
   // Checks if all keys in `a` exist in `b` and have the same value (by reference).
-  return aKeys.every((key) => Object.is(a[key], b[key]));
+  return aKeys.every(
+    (key) =>
+      Object.prototype.hasOwnProperty.call(b, key) && Object.is(a[key], b[key]),
+  );
 }
 
 /**
@@ -57,9 +59,9 @@ export function subscribeToSlices<T, S>(
  * @returns An `unsubscribe` function.
  */
 export function subscribeToQueryCount<T extends { queryCount: number }>(
-  store: UseBoundStore<StoreApi<T>>,
-
+  store: StoreApi<T>,
   listener: (count: number) => void,
+  onError: (error: unknown) => void = () => undefined,
 ): () => void {
   // Manually track the previous count to ensure compatibility with older Zustand versions.
   let prevCount = store.getState().queryCount;
@@ -69,10 +71,8 @@ export function subscribeToQueryCount<T extends { queryCount: number }>(
       prevCount = nextCount;
       try {
         listener(nextCount);
-        // eslint-disable-next-line unused-imports/no-unused-vars
       } catch (error) {
-        // Pure function constraint: cannot log
-        // But must not break subscription chain - swallow error
+        onError(error);
       }
     }
   });

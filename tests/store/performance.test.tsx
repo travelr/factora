@@ -39,4 +39,25 @@ describe('API Store Performance', () => {
     // Assert: Count should not have increased beyond the initial mount
     expect(spyGetQueryKey).toHaveBeenCalledTimes(initialCallCount);
   });
+
+  test('Verifies that a high-cardinality cache is cleared atomically', async () => {
+    const { getInternalStore } = createTestableApiStore(
+      '/api/cardinality',
+      vi.fn().mockResolvedValue({ ok: true }),
+      {},
+      { exposeInternal: true },
+    );
+    const store = getInternalStore();
+    await Promise.all(
+      Array.from({ length: 500 }, (_, id) =>
+        store.getState().triggerFetch(`key-${id}`, false, {
+          endpoint: '/api/cardinality',
+          params: { id },
+        }),
+      ),
+    );
+    expect(store.getState().queryCount).toBe(500);
+    store.getState().clearAllQueryStates();
+    expect(store.getState().queryCount).toBe(0);
+  });
 });

@@ -4,7 +4,7 @@
  * Axios and non-Axios errors into the library's standard ApiError format.
  */
 
-import { axiosErrorMapper } from '@adapter/axios';
+import { axiosErrorMapper, createAxiosErrorMapper } from '@adapter/axios';
 import axios, { type AxiosError } from 'axios';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
@@ -94,6 +94,29 @@ describe('axiosErrorMapper', () => {
       expect(parsed.errorCode).toBe('ENOTFOUND');
       expect(parsed.message).toContain('Network Error');
     });
+
+    test('Verifies that transient network retries require explicit opt-in', () => {
+      const mapper = createAxiosErrorMapper({ retryNetworkErrors: true });
+      const parsed = mapper(
+        {
+          isAxiosError: true,
+          message: 'Network Error',
+          code: 'ERR_NETWORK',
+        },
+        baseContext,
+      );
+      expect(parsed.retryable).toBe(true);
+      expect(
+        axiosErrorMapper(
+          {
+            isAxiosError: true,
+            message: 'Network Error',
+            code: 'ERR_NETWORK',
+          },
+          baseContext,
+        ).retryable,
+      ).toBe(false);
+    });
   });
 
   describe('Retry-After Header Parsing', () => {
@@ -122,6 +145,12 @@ describe('axiosErrorMapper', () => {
       const err = createRateLimitError('2');
       const parsed = axiosErrorMapper(err, baseContext);
       expect(parsed.retryAfter).toBe(2000);
+      expect(parsed.retryable).toBe(true);
+    });
+
+    test('Verifies that a numeric zero header triggers an immediate retry', () => {
+      const parsed = axiosErrorMapper(createRateLimitError(0), baseContext);
+      expect(parsed.retryAfter).toBe(0);
       expect(parsed.retryable).toBe(true);
     });
 
@@ -159,6 +188,16 @@ describe('axiosErrorMapper', () => {
       const parsed = axiosErrorMapper(err, baseContext);
       expect(parsed.retryAfter).toBeUndefined();
       expect(parsed.retryable).toBe(true);
+    });
+
+    test('Verifies that negative and oversized retry-after values are clamped', () => {
+      const mapper = createAxiosErrorMapper({ maxRetryAfterMs: 5_000 });
+      expect(mapper(createRateLimitError('-1'), baseContext).retryAfter).toBe(
+        0,
+      );
+      expect(
+        mapper(createRateLimitError('999999'), baseContext).retryAfter,
+      ).toBe(5_000);
     });
   });
 

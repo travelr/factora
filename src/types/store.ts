@@ -5,6 +5,10 @@
 /**
  * Configuration options for an API store instance.
  */
+import type { ApiError } from './error';
+
+export type RetryDecider = (error: ApiError, attempt: number) => boolean;
+
 export interface ApiStoreOptions {
   /** Time in milliseconds to keep successful fetch results cached. Defaults to 5 minutes. */
   cacheTTL?: number;
@@ -21,4 +25,8 @@ export interface ApiStoreOptions {
    * garbage collector. Defaults to a safe value based on cacheTTL.
    */
   gcGracePeriod?: number;
+  /** Optional request timeout in milliseconds. Disabled when omitted or zero. */
+  requestTimeoutMs?: number;
+  /** Optional retry policy. Defaults to the mapped error's `retryable` flag. */
+  shouldRetry?: RetryDecider;
 }

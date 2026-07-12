@@ -5,6 +5,7 @@
 import { axiosErrorMapper } from '@adapter/axios';
 import type { UseApiQueryHook } from '@core/api-store-factory';
 import { createApiFactoryPure } from '@core/index';
+import { initializeApiRegistry } from '@core/api-store-registry';
 
 import type { ApiStoreOptions } from '@/types/store';
 
@@ -18,6 +19,7 @@ const baseFactory = createApiFactoryPure({
   errorMapper: axiosErrorMapper,
   logger: loggerInstance,
 });
+initializeApiRegistry({ logger: loggerInstance });
 
 /**
  * Creates a ready-to-use API store and hook with a custom fetcher.

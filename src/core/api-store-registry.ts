@@ -1,124 +1,44 @@
-/**
- * @fileoverview A central registry for API stores.
- * This module allows global event handlers (like on window focus or logout) to trigger
- * actions on all active API stores without being directly coupled to them.
- * It uses a Set to maintain strong references to the actions of singleton stores,
- * which is the correct memory model for stores intended to live for the app's lifetime.
- */
-import { noop } from '@utils/noop-logger';
-
+/** Public compatibility facade over the default runtime's unified registry. */
 import type { FactoraLogger } from '@/types/dependencies';
 
-import { loggerInstance as logger, setLogger } from '../logger';
+import {
+  createPartialStoreHandle,
+  defaultRuntime,
+  type StoreHandle,
+} from './runtime';
 
-/**
- * Defines the shape of the globally accessible actions for each store.
- */
 export interface StoreActions {
   refetchStaleQueries: () => void;
   clearAllQueryStates: () => void;
 }
 
-/**
- * Initializes the global API store registry with external dependencies.
- * This should be called once when the application starts.
- * @param dependencies An object containing the required dependencies, like a logger.
- */
 export const initializeApiRegistry = (dependencies: {
   logger: FactoraLogger;
 }): void => {
-  setLogger(dependencies.logger);
+  defaultRuntime.setLogger(dependencies.logger);
 };
 
-// A Set is used to store the action objects, ensuring no duplicates.
-// This holds strong references, which is correct for singleton stores.
-const allStoreActions = new Set<StoreActions>();
+export const registerStoreHandle = (handle: StoreHandle): (() => void) =>
+  defaultRuntime.registerStore(handle);
 
-/**
- * Registers a store's actions with the central registry.
- * This is called automatically when a store is created via the factory.
- * @param {StoreActions} actions - An object containing the store's actions.
- * @returns {() => void} An unregister function to remove the actions from the registry.
- */
 export const registerStoreActions = (actions: StoreActions): (() => void) => {
   if (
     typeof actions?.refetchStaleQueries !== 'function' ||
     typeof actions?.clearAllQueryStates !== 'function'
   ) {
-    logger.error(
-      '[API Registry] Attempted to register invalid actions object.',
+    defaultRuntime.reportInternalError(
+      'register store actions',
+      new TypeError('Invalid store actions object.'),
     );
-    return noop;
+    return () => undefined;
   }
-
-  allStoreActions.add(actions);
-  return () => {
-    allStoreActions.delete(actions);
-  };
+  return defaultRuntime.registerStore(createPartialStoreHandle(actions));
 };
 
-/**
- * Iterates through all registered stores and triggers their check for stale queries.
- * This is intended to be called by a global event handler for refetch-on-focus.
- */
 export const refetchAllStaleQueries = (): void => {
-  if (allStoreActions.size === 0) {
-    return;
-  }
-  logger.info(
-    `[API Registry] Window focus detected. Checking ${allStoreActions.size} store(s) for stale queries.`,
-  );
-  allStoreActions.forEach((actions) => {
-    try {
-      actions.refetchStaleQueries();
-    } catch (error) {
-      logger.error(
-        '[API Registry] An error occurred while a store was attempting to refetch stale queries.',
-        error,
-      );
-    }
-  });
+  defaultRuntime.refetchAllStaleQueries();
 };
 
-/**
- * Iterates through all registered stores and clears their state.
- * This is intended to be called by a global event handler, such as logout.
- */
 export const clearAllApiStores = (): void => {
-  if (allStoreActions.size === 0) {
-    return;
-  }
-  logger.info(
-    `[API Registry] Clearing all data from ${allStoreActions.size} store(s).`,
-  );
-  allStoreActions.forEach((actions) => {
-    try {
-      actions.clearAllQueryStates();
-    } catch (error) {
-      logger.error(
-        '[API Registry] An error occurred while a store was attempting to clear its state.',
-        error,
-      );
-    }
-  });
+  defaultRuntime.clearAllQueryStates();
 };
-
-// --- Test-only helpers ---
-// This new object is exported only for testing, providing a reliable way to access helpers.
-// This is the minimal change required to fix the test failures robustly.
-// eslint-disable-next-line no-underscore-dangle
-export const _test_only_apiRegistry:
-  | {
-      getRegistrySize: () => number;
-      clearRegistry: () => void;
-      setLogger: typeof setLogger;
-    }
-  | undefined =
-  process.env.NODE_ENV === 'production'
-    ? undefined
-    : {
-        getRegistrySize: (): number => allStoreActions.size,
-        clearRegistry: (): void => allStoreActions.clear(),
-        /** In tests, this allows injecting a mock logger after module import. */
-        setLogger: setLogger,
-      };

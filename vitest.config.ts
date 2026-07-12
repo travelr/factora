@@ -18,5 +18,13 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: 'tests/vitest.setup.ts',
+    coverage: {
+      thresholds: {
+        statements: 89,
+        branches: 81,
+        functions: 87,
+        lines: 90,
+      },
+    },
   },
 });

@@ -20,7 +20,8 @@ export type {
   FactoraLogger,
 } from '@/types/dependencies';
 export type { ApiError, ErrorMapperContext } from '@/types/error';
-export type { ApiStoreOptions } from '@/types/store';
+export type { ApiStoreOptions, RetryDecider } from '@/types/store';
+export type { AxiosErrorMapperOptions } from '@adapter/axios';
 export type { UseApiQueryHook } from '@core/api-store-factory';
 export type { GcOptions } from '@core/api-store-gc';
 export type { StoreActions } from '@core/api-store-registry';

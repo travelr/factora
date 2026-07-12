@@ -1,21 +1,3 @@
-<details><summary>Relevant source files</summary>
-
-The following files were used as context for generating this documentation:
-
-- `src/index.ts` (Convenient Entry Point)
-- `src/pure.ts` (Pure Entry Point)
-- `src/core/index.ts` (Internal Core Factory)
-- `src/core/api-store-factory.ts` (Core Store Logic)
-- `src/core/api-store-gc.ts` (Garbage Collector)
-- `src/core/api-store-registry.ts` (Global Registry)
-- `src/adapter/axios.ts` (Axios Error Mapper)
-- `src/adapter/loglevel.ts` (Loglevel Logger)
-- `src/types/dependencies.ts` (DI Contracts)
-
-</details>
-
-&nbsp;
-
 # API Store Factory
 
 ---
@@ -26,7 +8,7 @@ The API Store Factory is a centralized, robust solution for fetching, caching, a
 
 The architecture is built on a **dependency-injected pure core** with optional adapters. This promotes a clear separation of concerns: the generated store acts as a powerful, centralized engine for all data fetching logic, while the hook provides a simple, declarative API for React components to consume that data. This design makes the library flexible, testable, and ensures consumers only bundle the dependencies they actually use.
 
-`Sources: src/core/api-store-factory.ts:1-24, src/index.ts:1-5, src/pure.ts:1-5`
+`Sources: src/core/api-store-factory.ts, src/core/store-engine.ts, src/react/create-query-hook.ts, src/index.ts, src/pure.ts`
 
 ---
 
@@ -67,7 +49,7 @@ end
 
 It is critical to understand that a Zustand store is a **single, global, non-React state object**. It lives outside the React component tree. The `useApiQuery` hook acts as a "window" or "selector" into this global state. When a component using the hook unmounts, it simply **unsubscribes** from updates. The data and any in-flight requests in the global store **persist**. This is the foundation of the shared cache model.
 
-`Sources: src/core/api-store-factory.ts:107-123`
+`Sources: src/core/store-engine.ts, src/react/create-query-hook.ts`
 
 ## How to Create a New API Store
 
@@ -108,7 +90,7 @@ export const useFireflyAccountStore = createApiStore(
 
 ### Pattern 2: Pure Factory (`createApiFactoryPure`)
 
-This pattern provides maximum control and is intended for projects with custom requirements (e.g., using `fetch` instead of Axios). It requires the developer to explicitly construct the factory by providing all dependencies. `Sources: src/pure.ts:17, src/core/index.ts:22-38`
+This pattern provides maximum control and is intended for projects with custom requirements (e.g., using `fetch` instead of Axios). It requires the developer to explicitly construct the factory by providing all dependencies. `Sources: src/pure.ts, src/core/index.ts`
 
 ```typescript
 // src/api/api-factory-setup.ts
@@ -208,9 +190,9 @@ The "global cache" for each store instance is the `queries` object managed withi
 
 ### What is Stored in the Cache?
 
-The `queries` object is a JavaScript map where keys are unique, serialized query strings and values are `QueryState` objects. The key is a unique identifier for a specific API call, including its exact URL parameters.
+The `queries` object is a JavaScript map where keys are stable, tagged in-memory identities and values are `QueryState` objects. The key identifies a specific endpoint and parameter shape; the original endpoint and parameter values are retained separately in the request descriptor used by the fetcher. Parameters are never reconstructed by decoding a cache key.
 
-`Sources: src/core/api-store-factory.ts:60-62`
+`Sources: src/core/store-engine.ts, src/utils/get-query-key.ts`
 
 After a component calls `useFireflyAccounts({ type: 'asset' })`, the `queries` object inside the Zustand store's state would look like this:
 
@@ -218,12 +200,14 @@ After a component calls `useFireflyAccounts({ type: 'asset' })`, the `queries` o
 // Inside the Zustand store's state:
 {
  queries: {
-   // The unique, serialized key
-   "{\"endpoint\":\"/api/v1/accounts\",\"params\":{\"type\":\"asset\"}}": {
+   // The unique, tagged in-memory key
+   "[[\"string\",\"/api/v1/accounts\"],[\"object\",[[\"type\",[\"string\",\"asset\"]]]]]": {
      // The QueryState object for this specific query
      "data": [{...}, {...}],
      "error": null,
      "lastFetchTimestamp": 1678886400000,
+     "lastSettledTimestamp": 1678886400000,
+     "request": { "endpoint": "/api/v1/accounts", "params": { "type": "asset" } },
      "inFlightPromise": undefined,
      "abortController": undefined,
      "refetchTimerId": 123
@@ -260,7 +244,7 @@ graph TD
   J --> End;
 ```
 
-`Sources: src/core/api-store-factory.ts:389-456`
+`Sources: src/core/store-engine.ts (triggerFetch and executeFetchCycle)`
 
 ## Concurrency & Race Condition Mitigation
 
@@ -290,12 +274,12 @@ sequenceDiagram
 
 The store prevents this race condition by separating promise creation from async execution.
 
-1.  A `Promise` object is created using a `defer()` utility.
-2.  This `Promise` is **immediately and synchronously** stored in the state as `inFlightPromise`. This action acts as an atomic "slot claim."
-3.  Any other component calling `triggerFetch` will now instantly find this `inFlightPromise` and receive it back, effectively deduplicating the request.
-4.  Only _after_ the slot is claimed does the async `executeFetchCycle` begin.
+1. A `Promise` object is created using a `defer()` utility.
+2. This `Promise` is **immediately and synchronously** stored in the state as `inFlightPromise`. This action acts as an atomic "slot claim."
+3. Any other component calling `triggerFetch` will now instantly find this `inFlightPromise` and receive it back, effectively deduplicating the request.
+4. Only _after_ the slot is claimed does the async `executeFetchCycle` begin.
 
-This pattern ensures that only one fetch cycle can be initiated for a given key at any time. `Sources: src/core/api-store-factory.ts:430-441`
+This pattern ensures that only one fetch cycle can be initiated for a given key. `Sources: src/core/store-engine.ts (request-slot claim)`
 
 ### Problem: Stale Data from Superseded Requests
 
@@ -305,7 +289,7 @@ A user might trigger a `refetch` while a previous, slower request for the same k
 
 Each fetch cycle is assigned a unique `Symbol` called an `inFlightToken`, which is stored in the query's state. When a fetch cycle completes, its `finally` block reads the current state. It will only proceed with state modification if the `inFlightToken` in the store **is the exact same one** it was created with. If a newer fetch has started, the token will have changed, and the stale worker will do nothing.
 
-`Sources: src/core/api-store-factory.ts:68, src/core/api-store-factory.ts:457-469`
+`Sources: src/core/store-engine.ts (in-flight token guard)`
 
 ### Problem: "Zombie" State After Clearing
 
@@ -313,9 +297,9 @@ A user could call the `clear()` function for a query while a fetch for that same
 
 #### Solution: Post-Resolution State Validation
 
-The `finally` block of every fetch cycle includes a critical guard: before making any state modifications, it checks if the query key still exists in the store (`if (get().queries[key])`). If `clear()` was called, the key will have been deleted, and the resolved data from the now-irrelevant fetch is safely discarded.
+Each fetch cycle validates both the query's existence and its in-flight token before committing state. If `clear()` removed the query, or a newer cycle owns the token, the old worker cannot resurrect or overwrite state.
 
-`Sources: src/core/api-store-factory.ts:459-462`
+`Sources: src/core/store-engine.ts (cycle finalization)`
 
 ---
 
@@ -340,9 +324,9 @@ graph TD
    I --> A;
 ```
 
-- **Standardization:** All errors are processed by the **injected `errorMapper`**, which classifies them and returns a standardized `ApiError` object. `Sources: src/core/api-store-factory.ts:285, src/adapter/axios.ts:74`
-- **Abort-Aware Delays:** As shown in step `I`, the retry delay is abort-aware. It's wrapped in a `Promise` that will `reject` if the request's `AbortSignal` is fired, correctly terminating the retry cycle. `Sources: src/core/api-store-factory.ts:324-345`
-- **Server-Driven Retries:** The retry logic correctly prioritizes a server-provided `retryAfter` value over the client-side exponential backoff. `Sources: src/core/api-store-factory.ts:326`
+- **Standardization:** All errors are processed by the **injected `errorMapper`**, which classifies them and returns a standardized `ApiError` object. `Sources: src/core/store-engine.ts, src/adapter/axios.ts`
+- **Abort-Aware Delays:** As shown in step `I`, the retry delay is abort-aware. It's wrapped in a `Promise` that will `reject` if the request's `AbortSignal` is fired, correctly terminating the retry cycle. `Sources: src/core/store-engine.ts`
+- **Server-Driven Retries:** The retry logic correctly prioritizes a valid server-provided `retryAfter` value over the client-side exponential backoff. `Sources: src/core/store-engine.ts, src/adapter/axios.ts`
 
 ---
 
@@ -350,11 +334,11 @@ graph TD
 
 The factory is designed for long-running single-page applications (SPAs), where preventing memory leaks is critical. The system employs a two-pronged approach to memory management: deliberate **manual cache clearing** by the developer and a robust **automatic garbage collection** safety net.
 
-### Global Services Initialization
+### Runtime Services and Global Coordination
 
-To function correctly, the global Garbage Collector and API Registry must be initialized with a logger. This is a one-time setup step in your application's root component.
+The internal `RuntimeServices` instance owns the unified store registry, GC scheduler, clock, logger, and internal-error reporter. The default runtime is used by the public global functions. The convenient root entry configures its Loglevel logger; the pure entry uses a no-op logger unless the application supplies one. Store registration is automatic and begins only after a store contains a cached query.
 
-`Sources: src/pure.ts:5-11, src/core/api-store-gc.ts:47`
+`Sources: src/core/runtime.ts, src/core/api-store-gc.ts, src/index.ts, src/pure.ts`
 
 ```typescript
 // In your main App.tsx
@@ -370,12 +354,12 @@ import React, { useEffect } from 'react';
 // 1. Initialize loglevel itself.
 log.setLevel('info');
 
-// 2. Inject logger into global registry.
+// 2. Configure the default runtime logger.
 initializeApiRegistry({ logger: loglevelAdapter });
 
 function App() {
   useEffect(() => {
-    // 3. Start GC and inject logger.
+    // 3. Start the shared GC scheduler.
     startApiStoreGarbageCollector({ logger: loglevelAdapter });
     return () => stopApiStoreGarbageCollector();
   }, []);
@@ -390,7 +374,7 @@ The `useEffect` in `useApiQuery` **deliberately does not clear data or abort its
 
 This design gives developers explicit control over the cache's lifecycle. The `useApiQuery` hook returns `clear()` and a static `clearAll()` function to manage the data for its specific store.
 
-`Sources: src/core/api-store-factory.ts:639-650`
+`Sources: src/react/create-query-hook.ts`
 
 #### Cache Clearing Strategies
 
@@ -406,10 +390,10 @@ The following strategies are recommended for managing the cache manually:
 
 It is crucial to distinguish between the local `clearAll` function provided by a hook and the global `clearAllApiStores` function used for app-wide events like logout.
 
-| Function                | Scope      | Where it's defined                                                                                                   | Common Use Case                                                           |
-| :---------------------- | :--------- | :------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------ |
-| `useMyStore.clearAll()` | **Local**  | Attached to a specific store hook (e.g., `useFireflyAccountStore`). `Sources: src/core/api-store-factory.ts:654-655` | Clearing all _account_ data when leaving the accounts section of the app. |
-| `clearAllApiStores()`   | **Global** | Exported from `factora/pure`. `Sources: src/pure.ts:9`                                                               | Clearing data from _every single API store_ when the user logs out.       |
+| Function                | Scope      | Where it's defined                                                                                            | Common Use Case                                                           |
+| :---------------------- | :--------- | :------------------------------------------------------------------------------------------------------------ | :------------------------------------------------------------------------ |
+| `useMyStore.clearAll()` | **Local**  | Attached to a specific store hook (e.g., `useFireflyAccountStore`). `Sources: src/react/create-query-hook.ts` | Clearing all _account_ data when leaving the accounts section of the app. |
+| `clearAllApiStores()`   | **Global** | Exported from `factora/pure`. `Sources: src/pure.ts`                                                          | Clearing data from _every single API store_ when the user logs out.       |
 
 ### Automatic Garbage Collection
 
@@ -417,7 +401,7 @@ For any data that is not manually cleared, the system provides an automatic garb
 
 #### Architectural Pattern: Subscription-Aware GC
 
-The chosen pattern is a **centralized, subscription-aware garbage collector**. This avoids the high complexity and potential bugs of putting GC logic inside every hook or component. The system is composed of three collaborating modules that work together to safely identify and remove garbage.
+The chosen pattern is a **centralized, subscription-aware garbage collector**. This avoids putting GC logic inside every hook or component. Each store has its own subscription manager, while `RuntimeServices` maintains one registry of `StoreHandle` objects. A handle exposes `clearAllQueryStates`, `clearStaleQueries`, and `refetchStaleQueries`.
 
 ```mermaid
 graph TD
@@ -429,68 +413,52 @@ end
         C["createApiStore<br/>(clearStaleQueries logic)"]
     end
 
-    subgraph Global Registry
-        B["subscription-registry<br/>(Active Hook Tracker)"]
+    subgraph Runtime
+        B["RuntimeServices<br/>(StoreHandle registry)"]
     end
 
     A -- "Sweeps periodically" --> C;
-    C -- "Is this query in use?" --> B;
-    B -- "Yes/No" --> C;
+    C -- "Uses its subscription manager" --> C;
+    B -- "Invokes store handles" --> C;
     C -- "Evicts if No and stale" --> D((Memory Freed));
 
 ```
 
-1.  **Global Garbage Collector (`api-store-gc.ts`):** A singleton process that runs a `setInterval` sweep. It maintains a registry of all active API store instances and triggers their individual cleanup functions. `Sources: src/core/api-store-gc.ts`
-2.  **Subscription Registry (`subscription-registry.ts`):** The definitive source of truth for active UI consumers. Every `useApiQuery` hook instance registers itself here on mount and unregisters on unmount. The GC will **never** evict a query key that has an active subscriber in this registry. `Sources: src/utils/subscription-registry.ts`
-3.  **Store Cleanup Logic (`clearStaleQueries`):** The workhorse function within each store instance. It iterates through its own cache and evicts entries that are both stale and have no active subscribers. `Sources: src/core/api-store-factory.ts:553-605`
+1. **Global Garbage Collector (`api-store-gc.ts`):** A compatibility facade over the runtime scheduler. It runs a bounded `setInterval` sweep and delegates to registered store handles. `Sources: src/core/api-store-gc.ts, src/core/runtime.ts`
+2. **Per-store subscriptions (`subscription-registry.ts`):** Each store owns its subscription manager, so stores with identical endpoints cannot share subscriber state. The GC will **never** evict a query key that still has an active subscriber in that store. `Sources: src/utils/subscription-registry.ts, src/core/store-engine.ts`
+3. **Store cleanup logic (`store-engine.ts`):** The engine atomically identifies stale, unused queries, captures their resources, removes them, and then performs best-effort abort/timer cleanup. `Sources: src/core/store-engine.ts`
 
 #### Preventing Race Conditions in Garbage Collection
 
 The GC process is highly sensitive to race conditions. The implementation includes specific guards against several dangerous scenarios.
 
-- **Time-of-Check to Time-of-Use (TOCTOU):** All checks (staleness, subscription status) and the state mutation (`delete newQueries[key]`) are performed **atomically within a single `set()` callback**, which operates on a consistent state snapshot. `Sources: src/core/api-store-factory.ts:563-596`
+- **Time-of-Check to Time-of-Use (TOCTOU):** All checks (staleness, subscription status) and the state mutation are performed **atomically within a single `set()` callback**, which operates on a consistent state snapshot. `Sources: src/core/store-engine.ts`
 
 - **Stale Resource Cleanup:** To prevent leaking timers or aborting newly created requests, the GC uses a two-phase "Capture and Unconditional Cleanup" pattern.
-  1.  **Capture & Delete:** Inside the atomic `set()` block, it captures the resources (`abortController`, `refetchTimerId`) of an entry marked for eviction and then deletes the entry from state.
-  2.  **Unconditional Cleanup:** _After_ the `set()` operation completes, it **unconditionally** cleans up the captured resources. This is safe because a new fetch for the same key will _always_ create a brand-new `AbortController` and timer ID.
+  1. **Capture & Delete:** Inside the atomic `set()` block, it captures the resources (`abortController`, `refetchTimerId`) of an entry marked for eviction and then deletes the entry from state.
+  2. **Unconditional Cleanup:** _After_ the `set()` operation completes, it **unconditionally** cleans up the captured resources. This is safe because a new fetch for the same key will _always_ create a brand-new `AbortController` and timer ID.
 
-  `Sources: src/core/api-store-factory.ts:553-605`
+  `Sources: src/core/store-engine.ts`
 
-#### Vite Dependency: HMR-Safe Intervals
+#### Scheduler Ownership
 
-The GC's `setInterval` is made safe for Vite's Hot Module Replacement (HMR) by hooking into the `import.meta.hot.dispose` lifecycle. This ensures that when the module is reloaded during development, the old interval is cleanly stopped before the new one is started, preventing duplicate GC processes.
+The runtime records the scheduler that created the active interval and always stops the interval through that same scheduler. This keeps custom schedulers deterministic in tests and prevents a mismatched stop call from leaking a GC job.
 
-`Sources: src/core/api-store-gc.ts:98-102`
+`Sources: src/core/runtime.ts, src/core/api-store-gc.ts`
 
-## The API Store Registry: Global Coordination
+## Runtime Registry: Global Coordination
 
-While each store is isolated, some actions need to be coordinated globally. The `api-store-registry.ts` file provides a central place for this. When a store is created, it registers its global actions.
+While each store is isolated, some actions need to be coordinated globally. The internal `RuntimeServices` owns one `StoreHandle` registry. The compatibility module `api-store-registry.ts` proxies the default runtime, preserving the existing public functions.
 
-`Sources: src/core/api-store-registry.ts:40-54`
+`Sources: src/core/runtime.ts, src/core/api-store-registry.ts`
 
-This enables two key features:
-
-1.  **`refetchAllStaleQueries()`**: Called by a global event listener (e.g., on window focus) to check all stores for stale data.
-2.  **`clearAllApiStores()`**: Called by a global event handler (e.g., on user logout) to purge all cached data from every API store.
-
-This pattern makes global actions "future-proof." When a new developer creates a new API store, it automatically registers itself and will be included in global refetches and logout cache purges without any extra work.
-
-While each store is isolated, some actions need to be coordinated globally. The `api-store-registry.ts` file provides a central place for this. When a store is created, it registers its global actions.
-
-`Sources: src/core/api-store-registry.ts:40-54`
-
-This enables two key features:
-
-1.  **`refetchAllStaleQueries()`**: Called by a global event listener (e.g., on window focus) to check all stores for stale data.
-2.  **`clearAllApiStores()`**: Called by a global event handler (e.g., on user logout) to purge all cached data from every API store.
-
-This pattern makes global actions "future-proof." When a new developer creates a new API store, it automatically registers itself and will be included in global refetches and logout cache purges without any extra work.
+Each store registers when its first query is created, remains registered while cached queries exist, and deregisters after it becomes empty. It can register again if a later query reuses the same factory. Global `refetchAllStaleQueries()` and `clearAllApiStores()` snapshot the registry and isolate failures so one store cannot prevent other stores from being processed.
 
 ### `clearAll()` vs. `clearAllApiStores()`
 
 It's important to understand the difference between these two functions:
 
-| Function                | Scope      | Where it's defined                                                                                                   | Common Use Case                                                           |
-| :---------------------- | :--------- | :------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------ |
-| `useMyStore.clearAll()` | **Local**  | Attached to a specific store hook (e.g., `useFireflyAccountStore`). `Sources: src/core/api-store-factory.ts:654-655` | Clearing all _account_ data when leaving the accounts section of the app. |
-| `clearAllApiStores()`   | **Global** | Exported from `factora/pure`. `Sources: src/pure.ts:9`                                                               | Clearing data from _every single API store_ when the user logs out.       |
+| Function                | Scope      | Where it's defined                                                                                            | Common Use Case                                                           |
+| :---------------------- | :--------- | :------------------------------------------------------------------------------------------------------------ | :------------------------------------------------------------------------ |
+| `useMyStore.clearAll()` | **Local**  | Attached to a specific store hook (e.g., `useFireflyAccountStore`). `Sources: src/react/create-query-hook.ts` | Clearing all _account_ data when leaving the accounts section of the app. |
+| `clearAllApiStores()`   | **Global** | Exported from `factora/pure`. `Sources: src/pure.ts`                                                          | Clearing data from _every single API store_ when the user logs out.       |

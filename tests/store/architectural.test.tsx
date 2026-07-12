@@ -97,8 +97,8 @@ describe('Architectural Contract Tests', () => {
     // Assert that the injected logger was used to report the internal problem.
     expect(mockLogger.error).toHaveBeenCalledTimes(1);
     expect(mockLogger.error).toHaveBeenCalledWith(
-      expect.stringContaining('Failed to generate a valid query key'),
-      expect.any(Object),
+      expect.stringContaining('Failed to generate query identity'),
+      expect.objectContaining({ endpoint: '' }),
     );
   });
 
@@ -120,11 +120,8 @@ describe('Architectural Contract Tests', () => {
     // The library DOES log standard fetch errors. This assertion is now correct.
     expect(mockLogger.error).toHaveBeenCalledTimes(1);
     expect(mockLogger.error).toHaveBeenCalledWith(
-      expect.stringContaining('Fetch failed for query'),
-      // The payload is the ApiError object produced by the mapper.
-      expect.objectContaining({
-        error: { message: 'Async error', retryable: false },
-      }),
+      '[API Request] Request failed.',
+      { endpoint: '/test', errorCode: undefined, status: undefined },
     );
   });
 
@@ -155,18 +152,19 @@ describe('Architectural Contract Tests', () => {
     render(<DataConsumer useApiQuery={useApiQuery} />);
     await act(flushPromises);
 
-    // The logger is called with the same consistent message format.
-    expect(mockLogger.error).toHaveBeenCalledTimes(1);
     expect(mockLogger.error).toHaveBeenCalledWith(
-      expect.stringContaining('Fetch failed for query'),
-      // The payload is the raw error thrown by the dependency that crashed.
-      expect.objectContaining({ error: internalMapperError }),
+      '[Factora runtime] Failed to map request error.',
+      { message: 'Error mapper crashed!' },
+    );
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      '[API Request] Request failed.',
+      { endpoint: '/test', errorCode: undefined, status: undefined },
     );
 
-    // The UI should display the error from the dependency that crashed,
-    // as that is the most recent and relevant error in the chain.
+    // Dependency implementation details stay in diagnostics; consumers receive
+    // a stable ApiError even when the injected mapper violates its contract.
     expect(screen.getByTestId('error')).toHaveTextContent(
-      'Error mapper crashed!',
+      'Request failed because error mapping failed.',
     );
   });
 });

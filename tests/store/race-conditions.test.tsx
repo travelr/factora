@@ -142,35 +142,38 @@ describe('API store race conditions and concurrency', () => {
     expect(screen.getByTestId('error').textContent).toBe('null');
   });
 
-  /**
-   * This test documents and verifies an important behavior: if a refetch is
-   * triggered while a retry is already scheduled, the original retry timer
-   * is *not* cancelled. Both the new request and the scheduled retry will run.
-   */
-  test('Verifies a refetch during a retry delay does not cancel the pending retry', async () => {
+  test('Verifies that forced refetch cancels the old retry cycle without cancelling the new cycle', async () => {
     const mockFetch = vi
       .fn()
-      .mockRejectedValue(createRetryableError('Rate limit exceeded'));
-    const { useApiQuery } = createTestableApiStore(
+      .mockRejectedValueOnce(createRetryableError('old cycle', 1_000))
+      .mockRejectedValueOnce(createRetryableError('new cycle', 2_000))
+      .mockResolvedValueOnce({ value: 'new result' });
+    const { getInternalStore, getQueryKey } = createTestableApiStore(
       '/api/abort-retry',
       mockFetch,
-      { retryAttempts: 2, retryDelay: 1000 },
+      { retryAttempts: 2 },
+      { exposeInternal: true },
     );
+    const key = getQueryKey('/api/abort-retry', {});
+    const request = { endpoint: '/api/abort-retry', params: {} };
+    const store = getInternalStore().getState();
 
-    render(<DataConsumer useApiQuery={useApiQuery} />);
-    await act(flushPromises); // Fetch #1 fails. Retry is scheduled.
+    const oldCycle = store
+      .triggerFetch(key, false, request)
+      .catch((error: unknown) => Promise.resolve(error as Error));
+    await act(flushPromises);
     expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('loading').textContent).toBe('true');
 
-    act(() => screen.getByTestId('refetch-button').click());
-    await act(flushPromises); // Fetch #2 (manual) also fails.
+    const newCycle = store.triggerFetch(key, true, request);
+    await act(flushPromises);
     expect(mockFetch).toHaveBeenCalledTimes(2);
-    expect(screen.getByTestId('loading').textContent).toBe('true');
 
-    await advanceTimersWithFlush(1000);
-    // Fetch #3 (the scheduled retry from fetch #1) fires as expected.
+    await advanceTimersWithFlush(1_000);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    await advanceTimersWithFlush(1_000);
     expect(mockFetch).toHaveBeenCalledTimes(3);
-    expect(screen.getByTestId('loading').textContent).toBe('false');
+    expect(await oldCycle).toMatchObject({ message: 'Retry delay aborted' });
+    await expect(newCycle).resolves.toBeUndefined();
   });
 
   /**
@@ -382,12 +385,13 @@ describe('API store race conditions and concurrency', () => {
     const store = getInternalStore().getState();
 
     // 1. Start Request A
-    const promiseA = store.triggerFetch(key);
+    const request = { endpoint: '/api/silent-abort', params: {} };
+    const promiseA = store.triggerFetch(key, false, request);
 
     // 2. Force Request B (This aborts Request A)
     // We catch B to prevent unhandled rejection warnings in the test log,
     // as we don't care about B's outcome here.
-    store.triggerFetch(key, true).catch(() => {});
+    store.triggerFetch(key, true, request).catch(() => {});
 
     // 3. Assert on First Signal
     // This confirms the abort actually happened on the network layer

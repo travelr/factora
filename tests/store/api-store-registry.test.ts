@@ -9,12 +9,11 @@ import {
   refetchAllStaleQueries,
   clearAllApiStores,
   StoreActions,
-  _test_only_apiRegistry,
 } from '@core/api-store-registry';
 
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { Mock } from 'vitest';
-import { mockLogger } from '@test-helper/test-helpers';
+import { _test_clearGcRegistry, mockLogger } from '@test-helper/test-helpers';
 
 describe('API Registry Integration', () => {
   const createMockStore = (): StoreActions => ({
@@ -24,7 +23,7 @@ describe('API Registry Integration', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    _test_only_apiRegistry?.clearRegistry();
+    _test_clearGcRegistry();
     initializeApiRegistry({ logger: mockLogger });
   });
 
@@ -126,8 +125,8 @@ describe('API Registry Integration', () => {
 
     // Assert that the specific error was logged.
     expect(mockLogger.error).toHaveBeenCalledWith(
-      '[API Registry] An error occurred while a store was attempting to clear its state.',
-      testError,
+      '[Factora runtime] Failed to clear query state.',
+      { message: testError.message },
     );
     // Crucially, assert that the loop continued and the next store was still processed.
     expect(workingStore.clearAllQueryStates).toHaveBeenCalledTimes(1);

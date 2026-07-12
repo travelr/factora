@@ -3,18 +3,16 @@
  * It orchestrates lower-level utilities for async operations and mock data generation.
  */
 import {
-  __test_only_apiStores,
-  createApiStoreCore,
+  createApiStoreEngine,
   type KeyedApiState,
 } from '@core/api-store-factory';
-import * as GcRegistry from '@core/api-store-gc';
+import { defaultRuntime, type RuntimeServices } from '@core/runtime';
 import type { FactoraDependencies, FactoraLogger } from '@/types/dependencies';
 import type { ApiError, ErrorMapperContext } from '@/types/error';
 import type { ApiStoreOptions } from '@/types/store';
 import { getQueryKey } from '@utils/get-query-key';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import { type Mock, vi } from 'vitest';
-import type { StoreApi, UseBoundStore } from 'zustand';
 
 import { DataConsumer } from '@test-helper/test-components';
 import { flushPromises, waitFor } from './async-helpers';
@@ -23,29 +21,7 @@ import {
   createRetryableError,
 } from './error-generators';
 
-// --- A. Test-local GC Registry & Spy ---
-
-const testGcRegistry = new Set<any>();
-let lastCapturedStoreRef: any = null;
-const originalRegisterStoreForGc = GcRegistry.registerStoreForGc;
-
-vi.spyOn(GcRegistry, 'registerStoreForGc').mockImplementation(
-  (storeInstance: any) => {
-    lastCapturedStoreRef = storeInstance;
-    testGcRegistry.add(storeInstance);
-    const realDeregister = originalRegisterStoreForGc(storeInstance);
-
-    return () => {
-      realDeregister();
-      testGcRegistry.delete(storeInstance);
-      if (lastCapturedStoreRef === storeInstance) {
-        lastCapturedStoreRef = null;
-      }
-    };
-  },
-);
-
-// --- B. Testable Store Factory & Setup ---
+// --- Testable Store Factory & Setup ---
 
 const mockErrorMapper = (
   error: unknown,
@@ -88,6 +64,7 @@ export function createTestableApiStore<T>(
   testOpts: {
     exposeInternal?: boolean;
     dependencyOverrides?: Partial<FactoraDependencies<T>>;
+    runtime?: RuntimeServices;
   } = {},
 ) {
   const baseDependencies: FactoraDependencies<T> = {
@@ -101,18 +78,12 @@ export function createTestableApiStore<T>(
     ...testOpts.dependencyOverrides,
   };
 
-  const useApiQuery = createApiStoreCore<T>(dependencies, apiPathKey, options);
-
-  // Add explicit type assertion for better type safety
-  const internalStore = __test_only_apiStores.get(apiPathKey) as UseBoundStore<
-    StoreApi<KeyedApiState<T>>
-  >;
-
-  if (!internalStore && apiPathKey) {
-    throw new Error(
-      `Test setup error: store with key "${apiPathKey}" was not found in the test registry.`,
-    );
-  }
+  const { useApiQuery, internalStore } = createApiStoreEngine<T>(
+    dependencies,
+    apiPathKey,
+    options,
+    testOpts.runtime,
+  );
 
   return {
     useApiQuery,
@@ -208,13 +179,12 @@ export const setupApiTest = async <T,>(
   };
 };
 
-// --- C. Test-only Utilities for Registry Inspection ---
-// --- E. Test-only Utilities for Registry Inspection ---
-export const _test_getGcRegistrySize = (): number => testGcRegistry.size;
+// --- Test-only Runtime Utilities ---
+export const _test_getGcRegistrySize = (): number =>
+  defaultRuntime.getStoreCount();
 
 export const _test_clearGcRegistry = (): void => {
-  testGcRegistry.clear();
-  lastCapturedStoreRef = null;
+  defaultRuntime.clearStores();
 };
 
 /**
@@ -222,8 +192,5 @@ export const _test_clearGcRegistry = (): void => {
  * test spy and calling their `clearStaleQueries` method.
  */
 export const _test_runGlobalGc = (): void => {
-  testGcRegistry.forEach((storeInstance) => {
-    // Each store instance registered for GC has this method.
-    storeInstance.clearStaleQueries();
-  });
+  defaultRuntime.sweepStaleQueries(mockLogger);
 };

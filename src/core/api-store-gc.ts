@@ -1,119 +1,57 @@
-/**
- * @fileoverview Global garbage collector for API stores. Automatically cleans stale queries
- * across all registered stores at regular intervals. Designed to be idempotent and safe for
- * multiple concurrent starts/stops.
- */
+/** Compatibility facade for the default runtime's garbage collector. */
 import type { FactoraLogger } from '@/types/dependencies';
 
-import { noopLogger } from '../utils/noop-logger';
+import {
+  createPartialStoreHandle,
+  defaultRuntime,
+  type RuntimeScheduler,
+} from './runtime';
 
-interface GcScheduler {
-  setInterval: typeof setInterval;
-  clearInterval: typeof clearInterval;
-}
+const DEFAULT_GC_INTERVAL_MS = 2 * 60 * 1000;
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 export interface GcOptions {
-  /** The interval in milliseconds at which the GC sweep runs. @default 120000 */
+  /** Sweep interval in milliseconds. Defaults to two minutes. */
   intervalMs?: number;
-  /** An optional scheduler. Used for testing with fake timers. @default globalThis */
-  scheduler?: GcScheduler;
-  /** An optional logger implementation. Defaults to a no-op logger. */
+  /** Injectable interval scheduler, primarily for deterministic tests. */
+  scheduler?: RuntimeScheduler;
+  /** Logger used for failures raised during GC sweeps. */
   logger?: FactoraLogger;
 }
 
-const gcStoreRegistry: Array<{ clearStaleQueries: () => void }> = [];
-
 export const registerStoreForGc = (store: {
   clearStaleQueries: () => void;
-}): (() => void) => {
-  gcStoreRegistry.push(store);
-  return () => {
-    const idx = gcStoreRegistry.indexOf(store);
-    if (idx >= 0) gcStoreRegistry.splice(idx, 1);
-  };
-};
+}): (() => void) =>
+  defaultRuntime.registerStore(createPartialStoreHandle(store));
 
-const getRegisteredGcStores = (): Array<{
-  clearStaleQueries: () => void;
-}> => gcStoreRegistry.slice();
-
-/**
- * Global symbol used to track the active GC interval.
- * Prevents duplicate intervals across multiple start calls.
- * @internal
- */
-const GC_GLOBAL_KEY = Symbol.for('__API_STORE_GC_INTERVAL__');
-
-/**
- * Starts the global garbage collector. This function is idempotent.
- *
- * @example
- * // In your application's root component (e.g., App.tsx)
- * React.useEffect(() => {
- *   startApiStoreGarbageCollector({ logger: myAppLogger });
- *   return () => stopApiStoreGarbageCollector();
- * }, []);
- *
- * @param options Configuration for the GC, primarily for testing.
- */
 export const startApiStoreGarbageCollector = (
   options: GcOptions = {},
 ): void => {
-  if (typeof window === 'undefined') return;
-
-  const g = globalThis as any;
-  if (g[GC_GLOBAL_KEY]) return;
-
-  const {
-    intervalMs = 2 * 60 * 1000,
-    scheduler = globalThis,
-    logger = noopLogger,
-  } = options;
-
-  const intervalId: any = scheduler.setInterval(() => {
-    // Note: The list of stores is read at the time of the sweep. It's safe if a store
-    // deregisters concurrently, as `clearStaleQueries` must be idempotent.
-    getRegisteredGcStores().forEach((store) => {
-      try {
-        store.clearStaleQueries();
-      } catch (err) {
-        // Use the injected logger. This makes the GC resilient.
-        logger.error('[GC] store.clearStaleQueries() failed for a store.', err);
-      }
+  const requestedInterval = options.intervalMs ?? DEFAULT_GC_INTERVAL_MS;
+  const intervalMs =
+    Number.isFinite(requestedInterval) && requestedInterval > 0
+      ? Math.min(MAX_TIMER_DELAY_MS, Math.max(1, Math.floor(requestedInterval)))
+      : DEFAULT_GC_INTERVAL_MS;
+  if (intervalMs !== requestedInterval) {
+    options.logger?.warn('[Factora GC] Invalid interval; using a safe value.', {
+      fallback: intervalMs,
     });
-  }, intervalMs);
-
-  g[GC_GLOBAL_KEY] = intervalId;
-};
-
-/**
- * Stops the global garbage collector.
- * @param scheduler Custom scheduler (should match start scheduler in tests)
- */
-export const stopApiStoreGarbageCollector = (
-  scheduler: GcScheduler = globalThis,
-): void => {
-  if (typeof window === 'undefined') return;
-  const g = globalThis as any;
-  const intervalId = g[GC_GLOBAL_KEY];
-  if (intervalId) {
-    scheduler.clearInterval(intervalId);
-    delete g[GC_GLOBAL_KEY];
   }
+  defaultRuntime.startGarbageCollector(
+    intervalMs,
+    options.scheduler ?? globalThis,
+    options.logger,
+  );
 };
 
-/** --- HMR Disposal Logic for Vite --- */
-/** Automatically stops GC during Vite HMR updates to prevent memory leaks */
-// @ts-ignore
-if (import.meta.hot) {
-  // @ts-ignore
-  import.meta.hot.dispose(() => stopApiStoreGarbageCollector());
-}
+// The optional argument remains accepted for source compatibility. The runtime
+// intentionally stops through the scheduler that created the active interval.
+export const stopApiStoreGarbageCollector = (
+  _scheduler: RuntimeScheduler = globalThis,
+): void => {
+  defaultRuntime.stopGarbageCollector();
+};
 
-/**
- * Clears all stores from the GC registry.
- * INTENDED FOR TEST USE ONLY to ensure a clean state between tests.
- */
 export function clearGcStoreRegistry(): void {
-  gcStoreRegistry.length = 0;
+  defaultRuntime.clearStores();
 }

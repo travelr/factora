@@ -52,6 +52,11 @@ describe('Zustand Utilities', () => {
         description: 'objects with different keys',
       },
       {
+        a: { key1: undefined },
+        b: { key2: undefined },
+        description: 'different keys whose missing values are both undefined',
+      },
+      {
         a: { a: 1 },
         b: { a: 1, b: 2 },
         description: 'objects with a different number of keys',
@@ -195,6 +200,26 @@ describe('Zustand Utilities', () => {
       act(() => useMockStore.setState({ queryCount: 2 }));
       expect(erroringCallback).toHaveBeenCalledTimes(2);
       expect(workingCallback).toHaveBeenCalledWith(2);
+    });
+
+    test('Verifies that listener errors are reported without breaking later updates', () => {
+      const useMockStore = create<{ queryCount: number }>()(() => ({
+        queryCount: 0,
+      }));
+      const listener = vi
+        .fn()
+        .mockImplementationOnce(() => {
+          throw new Error('listener failed');
+        })
+        .mockImplementation(() => undefined);
+      const onError = vi.fn();
+      subscribeToQueryCount(useMockStore, listener, onError);
+
+      useMockStore.setState({ queryCount: 1 });
+      useMockStore.setState({ queryCount: 2 });
+
+      expect(onError).toHaveBeenCalledWith(expect.any(Error));
+      expect(listener).toHaveBeenCalledTimes(2);
     });
   });
 });

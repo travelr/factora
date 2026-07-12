@@ -2,7 +2,7 @@
 
 ---
 
-### Introduction
+## Introduction
 
 This document outlines the comprehensive testing strategy for the **API Store Factory**, a system designed to provide robust, cached, and concurrent data fetching for React applications. The primary goal of the test suite is to guarantee the correctness and long-term stability of the store, ensuring it is resilient to network failures, immune to common race conditions, and free of memory leaks.
 
@@ -18,11 +18,16 @@ The test suite is organized by concern, with a clear separation between differen
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | `tests/adapter/*.test.ts`                 | **Adapter Tests:** Isolates and verifies that each adapter correctly implements its contract (e.g., `axiosErrorMapper`, `loglevelAdapter`). |
 | `tests/utils/*.test.ts`                   | **Unit Tests:** Focuses on the specific logic of pure, dependency-free utilities (e.g., `getQueryKey`, `zustand-utils`).                    |
-| `tests/core/architectural.test.tsx`       | **Architectural Tests:** "White-box" tests that verify the internal DI contracts of the pure core.                                          |
-| `tests/core/render.test.tsx`              | **Component Tests:** Validates React-specific rendering behavior, ensuring stability and preventing infinite loops.                         |
-| `tests/core/retries.test.tsx`             | **Component Tests:** Validates the complete error and retry lifecycle from the component's perspective.                                     |
-| `tests/core/race-conditions.test.tsx`     | **Component Tests:** A critical suite that deterministically simulates and verifies the handling of complex race conditions.                |
-| `tests/core/core.test.tsx`                | **Component Tests:** Verifies core features like caching, polling, and deduplication through the `useApiQuery` hook.                        |
+| `tests/store/architectural.test.tsx`      | **Architectural Tests:** "White-box" tests that verify the internal DI contracts of the pure core.                                          |
+| `tests/store/render.test.tsx`             | **Component Tests:** Validates React-specific rendering behavior, ensuring stability and preventing infinite loops.                         |
+| `tests/store/retries.test.tsx`            | **Component Tests:** Validates the complete error and retry lifecycle from the component's perspective.                                     |
+| `tests/store/race-conditions.test.tsx`    | **Component Tests:** A critical suite that deterministically simulates and verifies the handling of complex race conditions.                |
+| `tests/store/core.test.tsx`               | **Component Tests:** Verifies core features like caching, polling, and deduplication through the `useApiQuery` hook.                        |
+| `tests/store/async-execution.test.tsx`    | **Execution Tests:** Covers timeout, polling, retry-policy, and fire-and-forget failure paths.                                              |
+| `tests/store/cache-semantics.test.tsx`    | **Cache Tests:** Covers falsey payloads, timestamps, and preservation of original transport values.                                         |
+| `tests/store/react-query-hook.test.tsx`   | **React Adapter Tests:** Covers hook-order safety, selector isolation, and clear/refetch recovery.                                          |
+| `tests/store/runtime-lifecycle.test.tsx`  | **Runtime Tests:** Covers registration, deregistration, global actions, and cleanup isolation.                                              |
+| `tests/store/store-lifecycle.test.ts`     | **Lifecycle Unit Tests:** Covers debounce cancellation and disposer failure paths.                                                          |
 | `tests/integration/lifecycle.test.tsx`    | **Integration Tests:** Validates the end-to-end lifecycle of stores to prove the absence of memory leaks.                                   |
 | `tests/integration/entry-points.test.tsx` | **Integration Tests:** Verifies that the public entry points (`index`, `pure`) correctly compose and export the library's features.         |
 
@@ -30,19 +35,19 @@ The test suite is organized by concern, with a clear separation between differen
 
 To ensure all tests are deterministic, maintainable, and DRY, the suite is built on a foundation of shared helpers. These utilities abstract away common boilerplate for mocking, rendering, and, most importantly, controlling asynchronous behavior.
 
-#### Deterministic Time & Asynchronicity
+### Deterministic Time & Asynchronicity
 
 The key to reliably testing complex asynchronous UI is to gain full control over time. All tests use Vitest's fake timers (`vi.useFakeTimers()`). However, simply advancing timers is not enough when dealing with promises (like those from `fetch`) and React state updates.
 
 The canonical helper `advanceTimersWithFlush` is used for all time-based operations. It solves a common flakiness problem by bundling three crucial steps into one atomic operation:
 
-1.  Wraps the entire operation in React's `act()` to ensure state updates are properly batched.
-2.  Advances the fake timers by the specified duration.
-3.  Flushes the microtask queue (`Promise.resolve()`) to ensure any pending promises from the timer's expiration are fully resolved before the test continues.
+1. Wraps the entire operation in React's `act()` to ensure state updates are properly batched.
+2. Advances the fake timers by the specified duration.
+3. Flushes the microtask queue (`Promise.resolve()`) to ensure any pending promises from the timer's expiration are fully resolved before the test continues.
 
 ```typescript
 // Correct, robust usage for waiting for a retry timer.
-// Sources: tests/core/retries.test.tsx
+// Sources: tests/store/async-execution.test.tsx
 await advanceTimersWithFlush(500); // Advances time by 500ms and waits for promises to settle.
 expect(mockFetch).toHaveBeenCalledTimes(2);
 ```
@@ -60,7 +65,7 @@ Each test requires a clean, isolated instance of the API store. The following he
 | **`createTestableApiStore`** | A low-level factory that creates a store instance and provides test-only accessors for its internal state (`getStoreState`, `getInternalStore`). Essential for "white-box" testing of complex lifecycle logic like garbage collection. |
 | **`setupApiTest`**           | A high-level, all-in-one helper used by most tests. It combines `createTestableApiStore`, fetch mocking (`vi.fn()`), and component rendering (`render`) into a single async call, drastically reducing boilerplate.                    |
 
-_Sources: `tests/helper/api-store.test-helpers.tsx`_
+_Sources: `tests/helper/test-helpers.tsx`_
 
 #### Standardized Test Components
 
@@ -92,7 +97,7 @@ The following table summarizes the key features and the specific behaviors verif
 | **State Management**      | The `clearQueryState` action is called on a query with an active polling timer.     | Verifies that the state is removed _and_ that associated resources (like the `setTimeout` for the poll) are properly cleaned up. |
 |                           | The `clearAll` action is called on a store with multiple active and cached queries. | Confirms that the entire store's state is wiped and that all associated resources (timers, abort controllers) are cleaned up.    |
 
-_Sources: `tests/core/core.test.tsx`_
+_Sources: `tests/store/core.test.tsx`, `tests/store/cache-semantics.test.tsx`_
 
 ### Garbage Collection & Lifecycle Management
 
@@ -112,16 +117,16 @@ Tests in `garbage-collector.test.tsx` verify the non-negotiable rules of the gar
 | **Unmounted but Within Grace Period**     | Confirms the GC respects the `gcGracePeriod`. If a component unmounts but the grace period has not yet elapsed, the data is preserved, allowing for fast remounts to reuse the cache. |
 | **`clearAllApiStores` Global Action**     | A unit test verifies that the global `clearAllApiStores` function correctly broadcasts its command to all registered stores, a critical feature for app-level actions like logout.    |
 
-_Sources: `tests/core/garbage-collector.test.tsx`, `tests/core/registry.test.ts`_
+_Sources: `tests/store/garbage-collector.test.tsx`, `tests/store/runtime-lifecycle.test.tsx`, `tests/store/store-lifecycle.test.ts`_
 
 #### Integration Tests: End-to-End Validation
 
 While unit tests verify the rules in isolation, integration tests in `lifecycle.test.tsx` ensure they work together to achieve the ultimate goals of stability and leak prevention.
 
-| Scenario Tested                       | Verification / Purpose                                                                                                                                                                  |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **End-to-End Memory Leak Prevention** | A smoke test that proves stores correctly self-deregister from all three global registries after becoming idle, guaranteeing the prevention of memory leaks in long-lived applications. |
-| **Concurrent Error Isolation**        | Confirms that a store in a prolonged error/retry state does not interfere with the successful operation of a separate, concurrent store, proving robust module isolation.               |
+| Scenario Tested                       | Verification / Purpose                                                                                                                                                                   |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **End-to-End Memory Leak Prevention** | A smoke test that proves stores correctly self-deregister from the unified runtime registry after becoming idle, guaranteeing the prevention of memory leaks in long-lived applications. |
+| **Concurrent Error Isolation**        | Confirms that a store in a prolonged error/retry state does not interfere with the successful operation of a separate, concurrent store, proving robust module isolation.                |
 
 The memory leak prevention test is the most critical integration test. It simulates a user navigating through multiple pages to validate the full, automatic lifecycle from store creation to final destruction, as visualized below.
 
@@ -129,25 +134,21 @@ The memory leak prevention test is the most critical integration test. It simula
 sequenceDiagram
 participant TestRunner
 participant ComponentLifecycle
-participant SubscriptionRegistry
 participant StoreInstance
-participant StoreRegistries
+participant RuntimeServices
 participant GlobalGC_Sweep
 
-    Note over TestRunner: Starts with all global registries empty.
+    Note over TestRunner: Starts with the runtime registry empty.
 
     loop 5 times
         TestRunner->>ComponentLifecycle: render()
         ComponentLifecycle->>StoreInstance: new()
-        StoreInstance->>StoreRegistries: register()
-        ComponentLifecycle->>SubscriptionRegistry: subscribe()
+        StoreInstance->>RuntimeServices: register()
         TestRunner->>ComponentLifecycle: unmount()
-        ComponentLifecycle->>SubscriptionRegistry: unsubscribe()
     end
 
     Note over TestRunner: --- Assert Immediate Cleanup ---
-    TestRunner->>SubscriptionRegistry: Assert size is 0 (Correct)
-    TestRunner->>StoreRegistries: Assert size is 5 (Correct)
+    TestRunner->>RuntimeServices: Assert registry size is 5 (Correct)
 
     Note over TestRunner: Simulate time passing to make data stale.
     TestRunner->>TestRunner: advanceTimersWithFlush(gcGracePeriod)
@@ -160,10 +161,10 @@ participant GlobalGC_Sweep
     Note over TestRunner: Wait for deregistration debounce timer.
     TestRunner->>TestRunner: advanceTimersWithFlush(1500ms)
     Note over StoreInstance: Deregistration timer fires.
-    StoreInstance->>StoreRegistries: deregister()
+    StoreInstance->>RuntimeServices: deregister()
 
     Note over TestRunner: --- Assert Final Cleanup ---
-    TestRunner->>StoreRegistries: Assert size is 0 (Correct)
+    TestRunner->>RuntimeServices: Assert registry size is 0 (Correct)
     Note over TestRunner: Test Pass: No Memory Leak
 
 ```
@@ -211,7 +212,7 @@ participant Network
 
 ```
 
-_Sources: `tests/core/race-conditions.test.tsx`_
+_Sources: `tests/store/race-conditions.test.tsx`_
 
 #### The "Abort After Resolution" Race
 
@@ -236,26 +237,26 @@ sequenceDiagram
     end
 
     Note over Store: Store checks signal.aborted *after* await. It's true.
-    Store->>Store: Throws "Request aborted after fetch attempt" error
-    Store-->>UI: Update state: { data: null, error: AbortError }
-    UI-->>UI: Renders error message (Correct), not "Stale Data" (Incorrect)
+    Store->>Store: Rejects the superseded cycle
+    Store-->>UI: Keeps newer state or removes the cleared entry
+    UI-->>UI: Stale data is not rendered
 
 ```
 
-_Sources: `tests/core/race-conditions.test.tsx` (`Verifies store discards data if fetch is aborted...`)_
+_Sources: `tests/store/race-conditions.test.tsx` (`Verifies store discards data if fetch is aborted...`)_
 
 #### Other Concurrency Scenarios Tested
 
 In addition to these core race conditions, the suite covers other concurrency scenarios to ensure complete robustness.
 
-| Scenario Tested                    | Verification / Purpose                                                                                                                                                                 |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Forced Refetch Aborts Previous** | Confirms that when a user triggers a forced refetch, any in-progress request for that same query is immediately sent an `abort` signal.                                                |
-| **Clear During Flight**            | Ensures that if a query is cleared (`clearQueryState`) while its fetch is in-flight, the eventual resolution of that fetch is ignored and does not resurrect the state.                |
-| **Refetch During Retry Delay**     | Proves that a manual refetch and a scheduled retry can coexist. The test verifies that the scheduled retry is _not_ cancelled, and both requests are allowed to proceed independently. |
-| **Concurrent Error Isolation**     | An integration test that proves an error and prolonged retry loop in one query has zero impact on a separate, successful, concurrent query, ensuring robust module isolation.          |
+| Scenario Tested                    | Verification / Purpose                                                                                                                                                        |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Forced Refetch Aborts Previous** | Confirms that when a user triggers a forced refetch, any in-progress request for that same query is immediately sent an `abort` signal.                                       |
+| **Clear During Flight**            | Ensures that if a query is cleared (`clearQueryState`) while its fetch is in-flight, the eventual resolution of that fetch is ignored and does not resurrect the state.       |
+| **Refetch During Retry Delay**     | Proves that a forced refetch aborts the old retry cycle, starts a new token-owned cycle, and prevents stale cleanup from changing the new state.                              |
+| **Concurrent Error Isolation**     | An integration test that proves an error and prolonged retry loop in one query has zero impact on a separate, successful, concurrent query, ensuring robust module isolation. |
 
-_Sources: `tests/core/race-conditions.test.tsx`, `tests/integration/lifecycle.test.tsx`_
+_Sources: `tests/store/race-conditions.test.tsx`, `tests/integration/lifecycle.test.tsx`_
 
 ### Error Handling & Retries
 
@@ -271,7 +272,7 @@ The test suite places a strong emphasis on ensuring the store is resilient to tr
 | **Loading State During Retries** | A critical UX test that verifies the `loading` state remains `true` for the _entire duration_ of the retry process, preventing any flicker of an intermediate error state.        |
 | **Synchronous `fetchFn` Errors** | An edge case test to ensure the store's internal `try/catch` blocks can handle cases where the provided fetch function throws an error synchronously, before returning a promise. |
 
-_Sources: `tests/core/retries.test.tsx`, `tests/adapter/axios.test.ts`_
+_Sources: `tests/store/retries.test.tsx`, `tests/store/async-execution.test.tsx`, `tests/adapter/axios.test.ts`_
 
 #### The Retry Lifecycle
 
@@ -294,13 +295,13 @@ flowchart TD
     J --> |"No & Max Retries Reached"| M["UI State: 'loading: false', 'error: ...'"];
 ```
 
-_Sources: `tests/stores/retries.test.tsx`_
+_Sources: `tests/store/retries.test.tsx`, `tests/store/async-execution.test.tsx`
 
 To ensure the `retryAttempts` logic is thoroughly tested, the suite uses a data-driven, parameterized test. This approach reduces code duplication and clearly documents the expected behavior for a range of inputs in a single, easy-to-read block.
 
 ```typescript
 // Example of the parameterized test for the `retryAttempts` option.
-// Sources: tests/stores/retries.test.tsx
+// Sources: tests/store/retries.test.tsx
 
 const testCases = [
   {
@@ -319,7 +320,7 @@ const testCases = [
 ];
 
 test.each(testCases)(
-  'Verifies with retryAttempts = $retryAttempts, $description',
+  'Verifies retryAttempts = $retryAttempts, $description',
   async ({ retryAttempts, expectedCalls, shouldSucceed }) => {
     // ... test implementation
   },
@@ -339,7 +340,7 @@ The primary goals are to ensure rendering is precise, stable, and robust, especi
 | **React Strict Mode**                  | Confirms that the hook's subscription and cleanup logic is idempotent. It correctly handles Strict Mode's development-only double-invocation of `useEffect` without causing memory leaks, duplicate subscriptions, or redundant network requests. |
 | **Rapid Mount/Unmount Cycles**         | A stress test that simulates a user rapidly navigating back and forth. It verifies that the hook's deduplication and cleanup logic work correctly under pressure, resulting in only a single network request and no orphaned subscriptions.       |
 
-_Sources: `tests/core/render.test.tsx`, `tests/core/garbage-collector.test.tsx`_
+_Sources: `tests/store/render.test.tsx`, `tests/store/garbage-collector.test.tsx`
 
 ### Architectural & Entry Point Tests
 
@@ -353,4 +354,4 @@ This suite of "white-box" tests validates the library's internal architecture an
 | **"Pure" Entry Point Decoupling**        | An integration test that proves the `factora/pure` entry point is truly decoupled and can be configured with completely mocked dependencies, without pulling in adapter code. |
 | **"Convenient" Entry Point Composition** | An integration test that confirms the main `factora` entry point correctly composes the pure core with the real `axiosErrorMapper` and `loglevelAdapter`.                     |
 
-_Sources: `tests/core/architectural.test.tsx`, `tests/integration/entry-points.test.tsx`_
+_Sources: `tests/store/architectural.test.tsx`, `tests/integration/entry-points.test.tsx`
