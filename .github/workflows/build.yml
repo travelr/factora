@@ -2,42 +2,53 @@ name: Build
 
 on:
   push:
-    branches: ['main']
+    branches: [main]
   pull_request:
-    branches: ['main']
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
-    strategy:
-      matrix:
-        node-version: [20] # Define the Node.js version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
 
     steps:
-      # Step 1: Checkout the repository
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
-      # Step 2: Install pnpm
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
         with:
           version: 10
 
-      # Step 3: Set up Node.js
-      - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
         with:
-          node-version: ${{ matrix.node-version }}
-          cache: 'pnpm'
+          node-version: ">=24.11.0 <25"
+          cache: pnpm
 
-      # Step 4: Install dependencies
-      - name: Install Dependencies
+      - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Step 5: Run Build
-      - name: Run Build
-        run: pnpm run build
+      - name: Check formatting
+        run: pnpm format:check
 
-      # Step 6: Run Tests
-      - name: Run tests
+      - name: Lint
+        run: pnpm lint
+
+      - name: Type-check
+        run: pnpm typecheck
+
+      - name: Test
         run: pnpm test -- --run
+
+      - name: Build and verify artifacts
+        run: pnpm test:artifacts
