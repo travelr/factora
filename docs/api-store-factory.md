@@ -454,6 +454,34 @@ While each store is isolated, some actions need to be coordinated globally. The 
 
 Each store registers when its first query is created, remains registered while cached queries exist, and deregisters after it becomes empty. It can register again if a later query reuses the same factory. Global `refetchAllStaleQueries()` and `clearAllApiStores()` snapshot the registry and isolate failures so one store cannot prevent other stores from being processed.
 
+### Host-Triggered Aged Revalidation
+
+`revalidateAgedQueries()` is a separate global lifecycle action, exported by both `factora` and `factora/pure`. It is intended for a host application to call from its own reconnect or foreground lifecycle callback; Factora does not attach browser listeners or schedule a revalidation timer.
+
+Configure a store with `revalidateAfterMs` to opt into this behavior:
+
+```typescript
+import { createApiStore, revalidateAgedQueries } from 'factora';
+
+export const useProjectsStore = createApiStore('/projects', fetchProjects, {
+  cacheTTL: 10 * 60 * 1000,
+  revalidateAfterMs: 60 * 1000,
+});
+
+host.onReconnect(() => revalidateAgedQueries());
+host.onForeground(() => revalidateAgedQueries());
+```
+
+The three freshness settings have distinct responsibilities:
+
+| Setting                  | Meaning                                                                                                                    |
+| :----------------------- | :------------------------------------------------------------------------------------------------------------------------- |
+| `cacheTTL`               | Normal reads use a successful cached result while it remains fresh. Once it is stale, the next normal read fetches.        |
+| `refetchIntervalMinutes` | The store schedules polling fetches at the configured interval.                                                            |
+| `revalidateAfterMs`      | Enables a query for a host-invoked revalidation once its age is **strictly greater than** the threshold. It does not poll. |
+
+When invoked, `revalidateAgedQueries()` force-fetches eligible successful cached queries even if their `cacheTTL` is still fresh. Queries that are already in flight or in an error state are skipped. Omit `revalidateAfterMs` (or pass a non-positive value) to disable the feature; existing stores therefore retain their previous behavior without migration.
+
 ### `clearAll()` vs. `clearAllApiStores()`
 
 It's important to understand the difference between these two functions:

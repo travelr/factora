@@ -84,6 +84,14 @@ describe('Library Entry Point Integration Tests', () => {
     expect(mockAxiosGet).not.toHaveBeenCalled();
   });
 
+  test('Verifies root and pure entry points export aged-query revalidation', async () => {
+    const root = await import('../../src/index');
+    const pure = await import('../../src/pure');
+
+    expect(root.revalidateAgedQueries).toBeTypeOf('function');
+    expect(pure.revalidateAgedQueries).toBeTypeOf('function');
+  });
+
   /**
    * Validates the contract of the main `index.ts` entry point.
    */

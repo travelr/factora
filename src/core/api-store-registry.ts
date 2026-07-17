@@ -9,6 +9,7 @@ import {
 
 export interface StoreActions {
   refetchStaleQueries: () => void;
+  revalidateAgedQueries?: () => void;
   clearAllQueryStates: () => void;
 }
 
@@ -37,6 +38,10 @@ export const registerStoreActions = (actions: StoreActions): (() => void) => {
 
 export const refetchAllStaleQueries = (): void => {
   defaultRuntime.refetchAllStaleQueries();
+};
+
+export const revalidateAgedQueries = (): void => {
+  defaultRuntime.revalidateAgedQueries();
 };
 
 export const clearAllApiStores = (): void => {

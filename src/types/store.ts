@@ -27,6 +27,11 @@ export interface ApiStoreOptions {
   gcGracePeriod?: number;
   /** Optional request timeout in milliseconds. Disabled when omitted or zero. */
   requestTimeoutMs?: number;
+  /**
+   * Age in milliseconds after which successful cached queries can be revalidated
+   * by calling revalidateAgedQueries. Disabled when omitted or non-positive.
+   */
+  revalidateAfterMs?: number;
   /** Optional retry policy. Defaults to the mapped error's `retryable` flag. */
   shouldRetry?: RetryDecider;
 }

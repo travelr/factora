@@ -10,6 +10,7 @@ export interface StoreHandle {
   clearAllQueryStates: () => void;
   clearStaleQueries: () => void;
   refetchStaleQueries: () => void;
+  revalidateAgedQueries: () => void;
 }
 
 export interface RuntimeScheduler {
@@ -69,6 +70,12 @@ export class RuntimeServices {
     );
     this.forEachStore('refetch stale queries', (store) =>
       store.refetchStaleQueries(),
+    );
+  }
+
+  revalidateAgedQueries(): void {
+    this.forEachStore('revalidate aged queries', (store) =>
+      store.revalidateAgedQueries(),
     );
   }
 
@@ -167,6 +174,7 @@ export const createPartialStoreHandle = (
   clearAllQueryStates: partial.clearAllQueryStates ?? noop,
   clearStaleQueries: partial.clearStaleQueries ?? noop,
   refetchStaleQueries: partial.refetchStaleQueries ?? noop,
+  revalidateAgedQueries: partial.revalidateAgedQueries ?? noop,
 });
 
 export const defaultRuntime: RuntimeServices = new RuntimeServices();

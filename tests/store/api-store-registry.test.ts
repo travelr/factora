@@ -6,6 +6,7 @@
 import {
   initializeApiRegistry,
   registerStoreActions,
+  revalidateAgedQueries,
   refetchAllStaleQueries,
   clearAllApiStores,
   StoreActions,
@@ -43,6 +44,19 @@ describe('API Registry Integration', () => {
     expect(mockLogger.info).toHaveBeenCalledWith(
       '[API Registry] Window focus detected. Checking 2 store(s) for stale queries.',
     );
+  });
+
+  test('Verifies global aged revalidation reaches compatible and enhanced handles', () => {
+    const legacyStore = createMockStore();
+    const enhancedStore = {
+      ...createMockStore(),
+      revalidateAgedQueries: vi.fn(),
+    };
+    registerStoreActions(legacyStore);
+    registerStoreActions(enhancedStore);
+
+    expect(() => revalidateAgedQueries()).not.toThrow();
+    expect(enhancedStore.revalidateAgedQueries).toHaveBeenCalledTimes(1);
   });
 
   /**

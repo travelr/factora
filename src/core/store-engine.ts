@@ -95,6 +95,7 @@ export interface KeyedApiState<T> {
     request?: RequestDescriptor,
   ) => Promise<void>;
   refetchStaleQueries: () => void;
+  revalidateAgedQueries: () => void;
   clearQueryState: (key: string) => void;
   clearAllQueryStates: () => void;
   clearStaleQueries: () => void;
@@ -270,6 +271,16 @@ export const createStoreEngine = <T>(
     MAX_TIMER_DELAY_MS,
     normalizeNonNegative('requestTimeoutMs', options.requestTimeoutMs, 0),
   );
+  const revalidateAfterMs = (() => {
+    const value = options.revalidateAfterMs;
+    if (value === undefined || (Number.isFinite(value) && value <= 0)) return 0;
+    if (Number.isFinite(value)) return value;
+    logger.warn(`[${description}] Invalid option.`, {
+      option: 'revalidateAfterMs',
+      fallback: 0,
+    });
+    return 0;
+  })();
   const rawRetryAttempts = options.retryAttempts ?? 3;
   const retryAttempts =
     Number.isFinite(rawRetryAttempts) && rawRetryAttempts >= 0
@@ -721,6 +732,24 @@ export const createStoreEngine = <T>(
           )
             return;
           if (now - queryState.lastFetchTimestamp > cacheTTL) {
+            void triggerFetch(key, true).catch(noop);
+          }
+        });
+      },
+
+      /** Revalidates successful cached queries that exceed the configured age. */
+      revalidateAgedQueries: () => {
+        if (revalidateAfterMs <= 0) return;
+        const { queries, triggerFetch } = get();
+        const now = runtime.now();
+        Object.entries(queries).forEach(([key, queryState]) => {
+          if (
+            queryState.inFlightPromise ||
+            queryState.lastFetchTimestamp === undefined ||
+            queryState.error
+          )
+            return;
+          if (now - queryState.lastFetchTimestamp > revalidateAfterMs) {
             void triggerFetch(key, true).catch(noop);
           }
         });

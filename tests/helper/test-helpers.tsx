@@ -97,6 +97,8 @@ export function createTestableApiStore<T>(
     clearQueryState: (key: string) =>
       internalStore?.getState().clearQueryState(key),
     refetchStaleQueries: () => internalStore?.getState().refetchStaleQueries(),
+    revalidateAgedQueries: () =>
+      internalStore?.getState().revalidateAgedQueries(),
     setGlobalErrorState: (message: string) =>
       internalStore?.getState().setGlobalErrorState(message),
     getGlobalError: () => internalStore?.getState().globalError,

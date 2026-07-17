@@ -84,6 +84,7 @@ C --> E[usePostStore Hook];
 | **Automatic Retries**              | Configure `retryAttempts` and `retryDelay`. Failed requests retry automatically with exponential backoff.                            |
 | **Automatic Garbage Collection**   | The store tracks subscribers. Once none remain, the cache entry clears after a grace period.                                         |
 | **Automatic Refetching (Polling)** | Set `refetchIntervalMinutes` to refresh data periodically, keeping your UI up to date.                                               |
+| **Host-Triggered Revalidation**    | Set `revalidateAfterMs` (ms), then call `revalidateAgedQueries()` when your host reconnects or returns to the foreground.            |
 | **Manual Actions**                 | The hooks return stable `refetch()` and `clear()` methods, giving you control to refresh or clear a specific query’s cache manually. |
 
 Additional production-safety options are available without changing existing
@@ -265,6 +266,31 @@ function App() {
   // ... rest of your application
 }
 ```
+
+---
+
+### Revalidate Aged Cached Data
+
+`cacheTTL`, `refetchIntervalMinutes`, and `revalidateAfterMs` solve different problems:
+
+| Option                   | What it controls                                 | When a request happens                                            |
+| :----------------------- | :----------------------------------------------- | :---------------------------------------------------------------- |
+| `cacheTTL`               | How long ordinary reads can use cached data      | A normal read fetches once its cache entry is stale.              |
+| `refetchIntervalMinutes` | Store-managed polling                            | The store schedules periodic refetches.                           |
+| `revalidateAfterMs`      | Eligibility for a host-triggered freshness check | Nothing runs by itself; the host calls `revalidateAgedQueries()`. |
+
+`revalidateAfterMs` is opt-in. A successful cached query is revalidated only when its age is **strictly greater than** the configured value. Revalidation uses a force fetch, so it still refreshes an eligible query even if its `cacheTTL` is longer. It never schedules a timer or listens for browser events.
+
+Invoke it from the lifecycle mechanism your host already owns, such as an application reconnect or foreground callback:
+
+```typescript
+import { revalidateAgedQueries } from 'factora';
+
+host.onReconnect(() => revalidateAgedQueries());
+host.onForeground(() => revalidateAgedQueries());
+```
+
+The same function is also exported from `factora/pure`. Existing stores need no migration: omitting `revalidateAfterMs` preserves their current cache and polling behavior.
 
 ---
 

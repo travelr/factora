@@ -9,6 +9,7 @@ export {
 export {
   clearAllApiStores,
   initializeApiRegistry,
+  revalidateAgedQueries,
   refetchAllStaleQueries,
 } from '@core/api-store-registry';
 export { createApiFactoryPure } from '@core/index';

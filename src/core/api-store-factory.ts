@@ -36,6 +36,7 @@ export const createApiStoreEngine = <T>(
       clearAllQueryStates: state.clearAllQueryStates,
       clearStaleQueries: state.clearStaleQueries,
       refetchStaleQueries: state.refetchStaleQueries,
+      revalidateAgedQueries: state.revalidateAgedQueries,
     },
     runtime,
     dependencies.logger,
