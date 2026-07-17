@@ -88,7 +88,7 @@
     "format:check": "prettier . --check",
     "lint": "oxlint --type-aware --deny-warnings .",
     "lint:fix": "oxlint --type-aware --fix .",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "type": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
     "test": "vitest --config vitest.config.ts --execArgv=--no-experimental-webstorage",
     "test:artifacts": "npm run build && node scripts/verify-artifacts.mjs"
   },

@@ -1,3 +1,4 @@
+pnpm run type
 npx lint-staged
 pnpm format:check
 pnpm run build

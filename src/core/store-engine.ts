@@ -245,12 +245,19 @@ export const createStoreEngine = <T>(
     return fallback;
   };
 
+  const defaultCacheTTL = 5 * 60 * 1000;
   const cacheTTL =
     options.cacheTTL === undefined
-      ? 5 * 60 * 1000
+      ? defaultCacheTTL
       : Number.isFinite(options.cacheTTL)
         ? Math.max(0, options.cacheTTL)
-        : 5 * 60 * 1000;
+        : defaultCacheTTL;
+  if (options.cacheTTL !== undefined && !Number.isFinite(options.cacheTTL)) {
+    logger.warn(`[${options.description ?? 'API Request'}] Invalid option.`, {
+      option: 'cacheTTL',
+      fallback: defaultCacheTTL,
+    });
+  }
   const retryDelay = normalizeNonNegative(
     'retryDelay',
     options.retryDelay,
@@ -406,18 +413,39 @@ export const createStoreEngine = <T>(
           }
 
           try {
-            const data = await runFetchAttempt(
-              fetchFn,
-              errorMapper,
-              logger,
-              currentApiPathKey,
-              runtimeParams,
-              controller,
-              attempt,
-              description,
-              requestTimeoutMs,
-              runtime,
-            );
+            // The cycle controller handles caller cancellation across retries.
+            // Each attempt needs its own controller so a request timeout aborts
+            // only that transport and leaves a configured retry able to start.
+            const attemptController = new AbortController();
+            const abortAttempt = () =>
+              abortRuntimeRequest(
+                runtime,
+                attemptController,
+                logger,
+                'abort request attempt',
+              );
+            controller.signal.addEventListener('abort', abortAttempt, {
+              once: true,
+            });
+            if (controller.signal.aborted) abortAttempt();
+
+            let data: T;
+            try {
+              data = await runFetchAttempt(
+                fetchFn,
+                errorMapper,
+                logger,
+                currentApiPathKey,
+                runtimeParams,
+                attemptController,
+                attempt,
+                description,
+                requestTimeoutMs,
+                runtime,
+              );
+            } finally {
+              controller.signal.removeEventListener('abort', abortAttempt);
+            }
 
             const settledAt = runtime.now();
             setQueryState(key, (s) => {
